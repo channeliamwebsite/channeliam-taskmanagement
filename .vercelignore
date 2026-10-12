@@ -1,0 +1,8 @@
+# Never upload local secrets or dev artifacts. Configure env vars in Vercel instead.
+.env*
+!.env.example
+.next
+node_modules
+.claude
+supabase/.temp
+supabase/.branches

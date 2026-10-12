@@ -3,7 +3,8 @@ import "server-only";
 import { cache } from "react";
 
 import type { Session } from "@/lib/auth/dal";
-import { formatDate, isOverdue, todayISO, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
+import { todayISO, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
+import { isCarriedForward as isCarriedForwardPure, taskFlags as taskFlagsPure } from "@/lib/scheduling";
 import { createClient } from "@/lib/supabase/server";
 
 export type AssigneeSummary = {
@@ -362,21 +363,11 @@ export function toTaskRows(tasks: TaskSummary[], session: Session, today = today
   }));
 }
 
-/**
- * Carry-forward is derived, never written: an unfinished task whose
- * scheduled date is before today belongs to today's workload. No rows are
- * moved or duplicated, so it is idempotent; the task keeps its id, original
- * scheduled date, due date, priority and assignees.
- */
+/** Carry-forward rules live in a pure module (unit-tested); re-exported here. */
 export function isCarriedForward(t: Pick<TaskSummary, "scheduledDate" | "status">, today = todayISO()) {
-  return (
-    Boolean(t.scheduledDate) && t.scheduledDate! < today && t.status !== "COMPLETED" && t.status !== "CANCELLED"
-  );
+  return isCarriedForwardPure(t, today);
 }
 
 export function taskFlags(t: TaskSummary, today = todayISO()) {
-  const flags: { label: string; tone: "red" | "amber" | "blue" }[] = [];
-  if (isOverdue(t.dueDate, t.status, today)) flags.push({ label: "Overdue", tone: "red" });
-  if (isCarriedForward(t, today)) flags.push({ label: `Carried from ${formatDate(t.scheduledDate)}`, tone: "amber" });
-  return flags;
+  return taskFlagsPure(t, today);
 }

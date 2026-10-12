@@ -43,7 +43,13 @@ export async function createWorkspace(name: string, description?: string): Promi
     .single();
   if (error || !data) return fail(dbError(error, "Could not create the workspace."));
 
-  (await cookies()).set(WORKSPACE_COOKIE, data.id, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
+  (await cookies()).set(WORKSPACE_COOKIE, data.id, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
   refresh();
   return ok({ id: data.id });
 }

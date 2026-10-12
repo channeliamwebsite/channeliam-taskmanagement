@@ -28,7 +28,7 @@ import { listActivity } from "@/lib/data/activity";
 import { listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
 import { getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
-import { displayName, isOverdue, todayISO } from "@/lib/domain";
+import { addDaysISO, displayName, isOverdue } from "@/lib/domain";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
 
@@ -36,10 +36,8 @@ export const metadata: Metadata = { title: "Dashboard" };
 
 const isOpen = (t: TaskSummary) => t.status !== "COMPLETED" && t.status !== "CANCELLED";
 
-function addDays(iso: string, days: number) {
-  const [y, m, d] = iso.split("-").map(Number);
-  return todayISO(new Date(y, m - 1, d + days));
-}
+// Pure calendar arithmetic on YYYY-MM-DD; independent of the server timezone.
+const addDays = addDaysISO;
 
 const byDue = (a: TaskSummary, b: TaskSummary) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999");
 

@@ -27,15 +27,24 @@ export type Member = {
 };
 
 /** Workspaces the current user belongs to (RLS-scoped). */
+
 export const getMyWorkspaces = cache(async (): Promise<Workspace[]> => {
   const supabase = await createClient();
+
   const { data, error } = await supabase
     .from("workspaces")
     .select("id, name, description, timezone")
     .order("name");
-  if (error) throw new Error("Failed to load workspaces");
-  return data;
+
+  if (error) {
+    console.error("Failed to load workspaces:", error);
+    throw new Error(`Failed to load workspaces: ${error.message}`);
+  }
+
+  return data ?? [];
 });
+
+
 
 /**
  * The workspace being viewed. The cookie is only a preference; it is

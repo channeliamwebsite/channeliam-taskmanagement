@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Menu,
+  UserCheck,
   Settings,
   Sun,
   Users,
@@ -34,6 +35,7 @@ const ICONS = {
   inbox: Inbox,
   projects: FolderKanban,
   team: Users,
+  teamtoday: UserCheck,
   reports: BarChart3,
   settings: Settings,
 } satisfies Record<string, LucideIcon>;

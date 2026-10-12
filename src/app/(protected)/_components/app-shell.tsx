@@ -44,41 +44,45 @@ export async function AppShell({ children }: { children: ReactNode }) {
   ]);
 
   const permissions = getPermissions(session.profile.role);
-  // Navigation adapts to the role; every route also enforces access on the server.
-  const sections: NavSection[] = [
-    {
-      title: "My work",
-      items: [
-        { href: "/my-day", label: "My Day", icon: "myday" },
-        { href: "/tasks", label: "My Tasks", icon: "tasks" },
-        { href: "/calendar", label: "Calendar", icon: "calendar" },
-        { href: "/inbox", label: "Inbox", icon: "inbox", badge: notifications.unread },
-        ...(permissions.viewTeamReports ? [] : [{ href: "/reports", label: "Daily Update", icon: "reports" } as NavItem]),
-      ],
-    },
-    {
-      title: "Workspace",
-      items: [
-        { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-        { href: "/clients", label: "Clients", icon: "clients" },
-        { href: "/projects", label: "Projects", icon: "projects" },
-        { href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" },
-      ],
-    },
-    ...(permissions.viewTeam
-      ? [
-          {
-            title: "Management",
-            items: [
-              { href: "/team", label: "Team", icon: "team" },
-              { href: "/reports", label: "Daily Updates", icon: "reports" },
-            ] as NavItem[],
-          },
-        ]
-      : []),
-    { title: "Settings", items: [{ href: "/settings", label: "Settings", icon: "settings" }] },
-  ];
-
+  // Navigation adapts to the role. Hiding a link is only convenience: every
+  // route still enforces access on the server (and in RLS).
+  const role = session.profile.role;
+  const myWork: NavSection = {
+    title: "My work",
+    items: [
+      { href: "/my-day", label: "My Day", icon: "myday" },
+      { href: "/tasks", label: "My Tasks", icon: "tasks" },
+      { href: "/calendar", label: "Calendar", icon: "calendar" },
+      { href: "/inbox", label: "Inbox", icon: "inbox", badge: notifications.unread },
+      ...(permissions.viewTeamReports ? [] : [{ href: "/reports", label: "Daily Update", icon: "reports" } as NavItem]),
+    ],
+  };
+  const team: NavSection = {
+    title: "Team",
+    items: [
+      { href: "/team-today", label: "Team Today", icon: "teamtoday" },
+      { href: "/team", label: role === "SUPER_ADMIN" ? "Employees" : "Team", icon: "team" },
+      { href: "/reports", label: "Daily Updates", icon: "reports" },
+    ],
+  };
+  const workspaceNav: NavSection = {
+    title: "Workspace",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+      { href: "/clients", label: "Clients", icon: "clients" },
+      { href: "/projects", label: "Projects", icon: "projects" },
+      { href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" },
+    ],
+  };
+  const settings: NavSection = { title: "Settings", items: [{ href: "/settings", label: "Settings", icon: "settings" }] };
+  // Individuals: just their day. Admins: their day, then their team.
+  // Super admins: the team first, then their own work.
+  const sections: NavSection[] =
+    role === "INDIVIDUAL"
+      ? [myWork, settings]
+      : role === "ADMIN"
+        ? [myWork, team, workspaceNav, settings]
+        : [team, myWork, workspaceNav, settings];
   const switcher = <WorkspaceSwitcher workspaces={workspaces} activeId={active?.id ?? null} />;
   const name = displayName({ full_name: session.profile.fullName, email: session.profile.email });
 

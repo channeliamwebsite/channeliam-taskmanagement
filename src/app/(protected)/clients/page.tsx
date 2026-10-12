@@ -16,7 +16,7 @@ export default async function ClientsPage() {
   const { session, workspace } = await getPageContext();
   if (!workspace) return <NoWorkspace session={session} />;
 
-  const [clients, projects] = await Promise.all([listClients(workspace.id), listProjects(workspace.id)]);
+  const [clients, projects] = await Promise.all([listClients(workspace.id, { withContacts: session.profile.role !== "INDIVIDUAL" }), listProjects(workspace.id)]);
   const canEdit = session.profile.role !== "INDIVIDUAL";
   // Contact details are shown to admins only.
   const showContacts = canEdit;

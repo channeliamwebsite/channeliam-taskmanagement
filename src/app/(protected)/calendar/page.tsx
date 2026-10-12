@@ -161,7 +161,9 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
         month={anchor.slice(0, 7)}
         today={today}
         items={items}
-        canCreate={session.permissions.createTasks}
+        canCreate
+        workspaceId={workspace.id}
+        selfOnly={session.permissions.createTasks ? null : { userId: session.user.id }}
         projects={projects}
         members={memberOptions}
       />

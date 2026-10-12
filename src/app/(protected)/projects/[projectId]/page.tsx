@@ -73,7 +73,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
         actions={
           <>
             {session.permissions.createTasks ? (
-              <NewTaskButton projects={[{ id: project.id, name: project.name }]} members={memberOptions} defaultProjectId={project.id} />
+              <NewTaskButton projects={[{ id: project.id, name: project.name }]} members={memberOptions} workspaceId={project.workspaceId} defaultProjectId={project.id} />
             ) : null}
             {canEdit ? (
               <ProjectFormButton

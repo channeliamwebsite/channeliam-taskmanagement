@@ -21,6 +21,7 @@ export type CurrentProfile = {
   role: UserRole;
   department: string | null;
   jobTitle: string | null;
+  team: string | null;
   isActive: boolean;
 };
 
@@ -66,7 +67,7 @@ export const getCurrentProfile = cache(async (): Promise<CurrentProfile | null> 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, email, full_name, avatar_url, role, department, job_title, is_active")
+    .select("id, email, full_name, avatar_url, role, department, job_title, team, is_active")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -82,6 +83,7 @@ export const getCurrentProfile = cache(async (): Promise<CurrentProfile | null> 
     role: data.role,
     department: data.department,
     jobTitle: data.job_title,
+    team: data.team,
     isActive: data.is_active,
   };
 });

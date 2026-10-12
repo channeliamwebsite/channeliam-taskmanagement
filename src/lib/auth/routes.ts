@@ -13,6 +13,7 @@ export const PROTECTED_ROUTES = [
   "/tasks",
   "/projects",
   "/team",
+  "/team-today",
   "/reports",
   "/settings",
 ] as const;

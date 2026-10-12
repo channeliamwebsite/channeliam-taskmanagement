@@ -202,6 +202,63 @@ export type Database = {
           },
         ]
       }
+      meeting_links: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          schedule: string | null
+          sort_order: number
+          team: string | null
+          title: string
+          updated_at: string
+          url: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          schedule?: string | null
+          sort_order?: number
+          team?: string | null
+          title: string
+          updated_at?: string
+          url: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          schedule?: string | null
+          sort_order?: number
+          team?: string | null
+          title?: string
+          updated_at?: string
+          url?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_links_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_links_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           created_at: string
@@ -210,6 +267,7 @@ export type Database = {
           message: string | null
           project_id: string | null
           read_at: string | null
+          reminder_date: string | null
           task_id: string | null
           title: string
           type: Database["public"]["Enums"]["notification_type"]
@@ -222,6 +280,7 @@ export type Database = {
           message?: string | null
           project_id?: string | null
           read_at?: string | null
+          reminder_date?: string | null
           task_id?: string | null
           title: string
           type: Database["public"]["Enums"]["notification_type"]
@@ -234,6 +293,7 @@ export type Database = {
           message?: string | null
           project_id?: string | null
           read_at?: string | null
+          reminder_date?: string | null
           task_id?: string | null
           title?: string
           type?: Database["public"]["Enums"]["notification_type"]
@@ -325,6 +385,7 @@ export type Database = {
           description: string | null
           due_date: string | null
           id: string
+          is_default: boolean
           name: string
           owner_id: string | null
           priority: Database["public"]["Enums"]["priority_level"]
@@ -341,6 +402,7 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           id?: string
+          is_default?: boolean
           name: string
           owner_id?: string | null
           priority?: Database["public"]["Enums"]["priority_level"]
@@ -357,6 +419,7 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           id?: string
+          is_default?: boolean
           name?: string
           owner_id?: string | null
           priority?: Database["public"]["Enums"]["priority_level"]
@@ -577,6 +640,7 @@ export type Database = {
       tasks: {
         Row: {
           actual_hours: number
+          completed_at: string | null
           created_at: string
           created_by: string | null
           description: string | null
@@ -597,6 +661,7 @@ export type Database = {
         }
         Insert: {
           actual_hours?: number
+          completed_at?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -617,6 +682,7 @@ export type Database = {
         }
         Update: {
           actual_hours?: number
+          completed_at?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -796,7 +862,36 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_task: {
+        Args: {
+          p_assignee_ids: string[]
+          p_description?: string
+          p_due_date?: string
+          p_estimated_hours?: number
+          p_parent_task_id?: string
+          p_primary_assignee_id?: string
+          p_priority?: Database["public"]["Enums"]["priority_level"]
+          p_project_id: string
+          p_scheduled_date?: string
+          p_start_date?: string
+          p_status?: Database["public"]["Enums"]["task_status"]
+          p_task_type?: Database["public"]["Enums"]["task_type"]
+          p_title: string
+        }
+        Returns: string
+      }
+      get_client_contacts: {
+        Args: { p_workspace_id: string }
+        Returns: {
+          contact_email: string
+          contact_name: string
+          id: string
+        }[]
+      }
+      set_task_assignees: {
+        Args: { p_primary_id?: string; p_task_id: string; p_user_ids: string[] }
+        Returns: undefined
+      }
     }
     Enums: {
       activity_action:

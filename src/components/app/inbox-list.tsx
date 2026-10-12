@@ -48,7 +48,7 @@ export function InboxList({
               onClick={() =>
                 startTransition(async () => {
                   if (!n.isRead) await markNotificationRead(n.id);
-                  if (n.taskId) router.push(`/tasks/${n.taskId}`);
+                  router.push(n.taskId ? `/tasks/${n.taskId}` : "/my-day");
                 })
               }
             >

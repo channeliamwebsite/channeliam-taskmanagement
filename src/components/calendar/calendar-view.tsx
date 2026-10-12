@@ -61,6 +61,8 @@ export function CalendarView({
   canCreate,
   projects,
   members,
+  workspaceId,
+  selfOnly,
 }: {
   view: "month" | "week" | "day";
   days: string[];
@@ -70,6 +72,8 @@ export function CalendarView({
   canCreate: boolean;
   projects: ProjectOption[];
   members: MemberOption[];
+  workspaceId: string;
+  selfOnly: { userId: string } | null;
 }) {
   const [createFor, setCreateFor] = useState<string | null>(null);
   const byDay = new Map<string, CalendarItem[]>();
@@ -156,6 +160,8 @@ export function CalendarView({
           onOpenChange={(o) => !o && setCreateFor(null)}
           projects={projects}
           members={members}
+          workspaceId={workspaceId}
+          selfOnly={selfOnly}
           defaultScheduledDate={createFor}
         />
       ) : null}

@@ -34,6 +34,8 @@ export type TaskSummary = {
   clientName: string | null;
   createdBy: string | null;
   updatedAt: string;
+  /** Set by the database when the task becomes COMPLETED; null otherwise. */
+  completedAt: string | null;
   assignees: AssigneeSummary[];
   /** Direct subtasks the caller can see. */
   subtaskTotal: number;
@@ -42,7 +44,7 @@ export type TaskSummary = {
 
 const TASK_SUMMARY_SELECT = `
   id, title, status, priority, task_type, start_date, scheduled_date, due_date, progress,
-  parent_task_id, project_id, created_by, updated_at,
+  parent_task_id, project_id, created_by, updated_at, completed_at,
   project:projects!tasks_project_id_fkey(name, client_id, client_name, client:clients!projects_client_id_fkey(name)),
   assignees:task_assignees!task_assignees_task_id_fkey(
     user_id, is_primary, assigned_by,
@@ -64,6 +66,7 @@ type TaskSummaryRow = {
   project_id: string;
   created_by: string | null;
   updated_at: string;
+  completed_at: string | null;
   project: { name: string; client_id: string | null; client_name: string | null; client: { name: string } | null } | null;
   assignees: {
     user_id: string;
@@ -92,6 +95,7 @@ function toSummary(row: TaskSummaryRow, counts?: Map<string, { total: number; do
     clientName: row.project?.client?.name ?? row.project?.client_name ?? null,
     createdBy: row.created_by,
     updatedAt: row.updated_at,
+    completedAt: row.completed_at,
     subtaskTotal: c.total,
     subtaskDone: c.done,
     assignees: row.assignees

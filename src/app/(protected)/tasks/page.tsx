@@ -75,7 +75,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
       <PageHeader
         title={title}
         description={`${rows.length} task${rows.length === 1 ? "" : "s"} in ${workspace.name}`}
-        actions={canCreate ? <NewTaskButton projects={projects} members={memberOptions} /> : null}
+        actions={<NewTaskButton projects={projects} members={memberOptions} workspaceId={workspace.id} selfOnly={canCreate ? null : { userId }} />}
       />
       <TaskFilters projects={projects} members={memberOptions} clients={clients} />
       {rows.length === 0 ? (

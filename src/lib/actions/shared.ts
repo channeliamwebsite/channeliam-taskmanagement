@@ -41,6 +41,11 @@ const SAFE_DB_MESSAGES = [
   "Task dependencies cannot contain cycles",
   "Reporting lines cannot contain cycles",
   "Client must belong to the same workspace",
+  "Assign at least one person",
+  "Project not found",
+  "permission to assign this task",
+  "permission to remove some assignees",
+  "The default General project cannot be deleted",
 ];
 
 /** Maps a database error to a user-facing message without leaking SQL details. */

@@ -3,10 +3,15 @@ import type { Metadata } from "next";
 
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { StatCard } from "@/components/dashboard/widgets";
+import { MeetingLinksCard } from "@/components/app/meeting-links-card";
+import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { TaskList } from "@/components/tasks/task-list";
+import { listMeetingLinks, meetingsForPerson } from "@/lib/data/meetings";
+import { listProjectOptions } from "@/lib/data/projects";
 import { isCarriedForward, listTasks, toTaskRows, type TaskSummary } from "@/lib/data/tasks";
-import { workspaceToday } from "@/lib/data/workspace";
-import { PRIORITY_RANK, addDaysISO, formatDate, isOverdue, todayISO } from "@/lib/domain";
+import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { PRIORITY_RANK, addDaysISO, displayName, formatDate, isOverdue } from "@/lib/domain";
+import { isCompletedOn } from "@/lib/scheduling";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
 
@@ -28,7 +33,19 @@ export default async function MyDayPage() {
 
   const today = workspaceToday(workspace);
   const tomorrow = addDaysISO(today, 1);
-  const tasks = await listTasks({ workspaceId: workspace.id, assigneeId: session.user.id });
+  const canAssign = session.permissions.createTasks;
+  const [tasks, meetings, projects, members] = await Promise.all([
+    listTasks({ workspaceId: workspace.id, assigneeId: session.user.id }),
+    listMeetingLinks(workspace.id, { activeOnly: true }),
+    canAssign ? listProjectOptions(workspace.id) : Promise.resolve([]),
+    canAssign ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),
+  ]);
+  const memberOptions = members.map((m) => ({
+    userId: m.userId,
+    name: displayName({ full_name: m.fullName, email: m.email }),
+    role: m.role,
+    isActive: m.isActive,
+  }));
   const open = tasks.filter(isOpen);
   const placed = new Set<string>();
   const take = (list: TaskSummary[]) => {
@@ -46,7 +63,7 @@ export default async function MyDayPage() {
   const tomorrows = take(open.filter((t) => !placed.has(t.id) && t.scheduledDate === tomorrow));
   const unscheduled = take(open.filter((t) => !placed.has(t.id) && !t.scheduledDate));
   const completedToday = tasks
-    .filter((t) => t.status === "COMPLETED" && todayISO(new Date(t.updatedAt), workspace.timezone) === today)
+    .filter((t) => t.status === "COMPLETED" && isCompletedOn(t.completedAt, today, workspace.timezone))
     .sort(byPriorityThenDue);
 
   const overdue = open.filter((t) => isOverdue(t.dueDate, t.status, today)).length;
@@ -58,7 +75,23 @@ export default async function MyDayPage() {
       <PageHeader
         title="My Day"
         description={`${new Date(`${today}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })} · ${workspace.timezone}`}
+        actions={
+          <NewTaskButton
+            projects={projects}
+            members={memberOptions}
+            workspaceId={workspace.id}
+            selfOnly={canAssign ? null : { userId: session.user.id }}
+            label={canAssign ? "Add task" : "Add my task"}
+          />
+        }
       />
+
+      <div className="mb-6">
+        <MeetingLinksCard
+          links={meetingsForPerson(meetings, session.profile.team)}
+          canManage={session.profile.role === "SUPER_ADMIN"}
+        />
+      </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Planned for today" value={remaining + completedToday.length} icon={Sun} tone="info" />

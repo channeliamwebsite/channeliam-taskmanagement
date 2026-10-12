@@ -1,6 +1,6 @@
 import "server-only";
 
-import { todayISO } from "@/lib/domain";
+import { isCompletedOn } from "@/lib/scheduling";
 
 import { isCarriedForward, listTasks, type TaskSummary } from "./tasks";
 
@@ -20,7 +20,7 @@ export async function summarizeDay(workspaceId: string, userId: string, today: s
   const tasks = await listTasks({ workspaceId, assigneeId: userId });
   const open = (t: TaskSummary) => t.status !== "COMPLETED" && t.status !== "CANCELLED";
   return {
-    completed: tasks.filter((t) => t.status === "COMPLETED" && todayISO(new Date(t.updatedAt), timeZone) === today),
+    completed: tasks.filter((t) => t.status === "COMPLETED" && isCompletedOn(t.completedAt, today, timeZone)),
     notCompleted: tasks.filter(
       (t) =>
         open(t) &&

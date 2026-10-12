@@ -155,7 +155,8 @@ $$, 'admin can unassign');
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims to '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}';
 select is((select count(*)::int from public.tasks), 3, 'individual sees assigned task and its subtasks');
-select is((select count(*)::int from public.projects), 1, 'individual sees project of assigned task');
+select is((select count(*)::int from public.projects where not is_default), 1, 'individual sees project of assigned task');
+select is((select count(*)::int from public.projects where is_default), 1, 'individual sees the workspace General project');
 select throws_ok($$
   insert into public.tasks (project_id, title) values ('bbbbbbbb-0000-0000-0000-000000000001', 'x')
 $$, '42501', null, 'individual cannot create tasks');
@@ -166,7 +167,7 @@ select throws_ok($$
   update public.tasks set title = 'Hacked' where id = 'cccccccc-0000-0000-0000-000000000001'
 $$, '42501', null, 'individual cannot edit other task fields');
 select lives_ok($$
-  update public.tasks set scheduled_date = '2026-10-12' where id = 'cccccccc-0000-0000-0000-000000000001'
+  update public.tasks set scheduled_date = '2030-01-15' where id = 'cccccccc-0000-0000-0000-000000000001'
 $$, 'individual assignee can schedule their task');
 select is((select count(*)::int from public.activity_logs
            where task_id = 'cccccccc-0000-0000-0000-000000000001' and action = 'TASK_SCHEDULED'),
@@ -212,9 +213,9 @@ $$, '42501', null, 'cannot comment on inaccessible task');
 -- Outsider: different workspace
 set local request.jwt.claims to '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated"}';
 select is((select count(*)::int from public.tasks), 0, 'outsider sees no tasks');
-select is((select count(*)::int from public.projects), 0, 'outsider sees no projects');
+select is((select count(*)::int from public.projects where workspace_id = 'aaaaaaaa-0000-0000-0000-000000000001'), 0, 'outsider sees no projects of another workspace');
 select is((select count(*)::int from public.profiles), 1, 'outsider sees only own profile');
-select is((select count(*)::int from public.activity_logs), 0, 'outsider sees no activity');
+select is((select count(*)::int from public.activity_logs where workspace_id = 'aaaaaaaa-0000-0000-0000-000000000001'), 0, 'outsider sees no activity of another workspace');
 
 -- ---------------------------------------------------------------------------
 -- Super admin sees everything in their workspace; admin sees team reports

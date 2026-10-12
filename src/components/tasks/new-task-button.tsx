@@ -11,6 +11,8 @@ import { TaskFormDialog, type ProjectOption } from "./task-form-dialog";
 export function NewTaskButton({
   projects,
   members,
+  workspaceId,
+  selfOnly,
   defaultProjectId,
   defaultScheduledDate,
   parentTask,
@@ -20,6 +22,9 @@ export function NewTaskButton({
 }: {
   projects: ProjectOption[];
   members: MemberOption[];
+  workspaceId?: string;
+  /** Individuals: create a task assigned only to this user. */
+  selfOnly?: { userId: string } | null;
   defaultProjectId?: string;
   defaultScheduledDate?: string;
   parentTask?: { id: string; title: string; projectId: string } | null;
@@ -41,6 +46,8 @@ export function NewTaskButton({
           onOpenChange={setOpen}
           projects={projects}
           members={members}
+          workspaceId={workspaceId}
+          selfOnly={selfOnly}
           defaultProjectId={defaultProjectId}
           defaultScheduledDate={defaultScheduledDate}
           parentTask={parentTask}

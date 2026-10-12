@@ -26,7 +26,7 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
   if (!UUID.test(clientId)) notFound();
   const { session } = await getPageContext();
 
-  const client = await getClient(clientId);
+  const client = await getClient(clientId, { withContacts: session.profile.role !== "INDIVIDUAL" });
   if (!client) notFound(); // missing or outside the caller's workspaces (RLS)
 
   const workspaces = await getMyWorkspaces();

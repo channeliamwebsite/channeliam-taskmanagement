@@ -17,7 +17,10 @@ import {
 } from "./shared";
 
 export type TaskInput = {
-  projectId: string;
+  /** Optional: defaults to the workspace's General project. */
+  projectId?: string | null;
+  /** Required when no project is given. */
+  workspaceId?: string | null;
   parentTaskId?: string | null;
   title: string;
   description?: string | null;
@@ -96,62 +99,74 @@ function validateAssignees(ids: unknown, primary: unknown): ActionResult<{ ids: 
   return ok({ ids: list as string[], primary: primaryId });
 }
 
+/**
+ * Creates a task and its assignees atomically (public.create_task runs as the
+ * caller, so RLS and triggers still decide). Without a project, the task goes
+ * into the workspace's default General project. Individuals may only create
+ * tasks assigned to themselves in the General project — enforced here and by
+ * the database policies.
+ */
 export async function createTask(input: TaskInput): Promise<ActionResult<{ id: string }>> {
   const actor = await getActor();
   if (!actor.ok) return actor;
-  if (actor.profile.role === "INDIVIDUAL") return fail("Only admins can create tasks.");
-  if (!isUuid(input.projectId)) return fail("Choose a project.");
+  const { supabase, userId, profile } = actor;
+  const isIndividual = profile.role === "INDIVIDUAL";
 
   const fields = validateFields(input);
   if (!fields.ok) return fields;
-  const assignees = validateAssignees(input.assigneeIds, input.primaryAssigneeId);
-  if (!assignees.ok) return assignees;
-  if (assignees.data.ids.length === 0) return fail("Assign at least one person.");
 
-  const { supabase, userId } = actor;
-  const progress = fields.data.status === "COMPLETED" ? 100 : 0;
-
-  const { data: project } = await supabase
-    .from("projects")
-    .select("workspace_id")
-    .eq("id", input.projectId)
-    .maybeSingle();
-  if (!project) return fail("Project not found.");
-
-  const { data: task, error } = await supabase
-    .from("tasks")
-    .insert({
-      ...fields.data,
-      progress,
-      project_id: input.projectId,
-      created_by: userId,
-      // The database also derives this from the project.
-      workspace_id: project.workspace_id,
-    })
-    .select("id")
-    .single();
-
-  if (error || !task) return fail(dbError(error, "Could not create the task."));
-
-  if (assignees.data.ids.length) {
-    const { error: assignError } = await supabase.from("task_assignees").insert(
-      assignees.data.ids.map((uid) => ({
-        task_id: task.id,
-        user_id: uid,
-        assigned_by: userId,
-        is_primary: uid === assignees.data.primary,
-      })),
-    );
-    if (assignError) {
-      refresh();
-      return fail(`Task created, but assigning failed: ${dbError(assignError)}`);
-    }
+  let assignees: { ids: string[]; primary: string | null };
+  if (isIndividual) {
+    const requested = (input.assigneeIds ?? []).filter(Boolean);
+    if (requested.some((id) => id !== userId)) return fail("You can only create tasks assigned to yourself.");
+    if (fields.data.parent_task_id) return fail("Only admins can create subtasks.");
+    assignees = { ids: [userId], primary: userId };
+  } else {
+    const parsed = validateAssignees(input.assigneeIds, input.primaryAssigneeId);
+    if (!parsed.ok) return parsed;
+    if (parsed.data.ids.length === 0) return fail("Assign at least one person.");
+    assignees = parsed.data;
   }
 
-  refresh();
-  return ok({ id: task.id });
-}
+  let projectId = input.projectId || null;
+  if (projectId !== null && !isUuid(projectId)) return fail("Invalid project.");
+  if (isIndividual && projectId !== null) {
+    const { data: chosen } = await supabase.from("projects").select("is_default").eq("id", projectId).maybeSingle();
+    if (!chosen?.is_default) return fail("You can only add tasks to the General project.");
+  }
+  if (projectId === null) {
+    if (!isUuid(input.workspaceId)) return fail("Choose a workspace.");
+    const { data: general, error: generalError } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("workspace_id", input.workspaceId!)
+      .eq("is_default", true)
+      .maybeSingle();
+    if (generalError) return fail(dbError(generalError));
+    if (!general) return fail("This workspace has no General project yet. Ask a super admin.");
+    projectId = general.id;
+  }
 
+  const { data: taskId, error } = await supabase.rpc("create_task", {
+    p_project_id: projectId,
+    p_title: fields.data.title,
+    p_assignee_ids: assignees.ids,
+    p_primary_assignee_id: assignees.primary ?? undefined,
+    p_parent_task_id: fields.data.parent_task_id ?? undefined,
+    p_description: fields.data.description ?? undefined,
+    p_status: fields.data.status,
+    p_priority: fields.data.priority,
+    p_task_type: fields.data.task_type,
+    p_start_date: fields.data.start_date ?? undefined,
+    p_scheduled_date: fields.data.scheduled_date ?? undefined,
+    p_due_date: fields.data.due_date ?? undefined,
+    p_estimated_hours: fields.data.estimated_hours ?? undefined,
+  });
+  if (error || !taskId) return fail(dbError(error, "Could not create the task."));
+
+  refresh();
+  return ok({ id: taskId });
+}
 export async function updateTask(taskId: string, input: Omit<TaskInput, "projectId" | "assigneeIds" | "primaryAssigneeId">): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;
@@ -222,54 +237,18 @@ export async function setTaskAssignees(taskId: string, assigneeIds: string[], pr
   const parsed = validateAssignees(assigneeIds, primaryId);
   if (!parsed.ok) return parsed;
 
-  const { supabase, userId } = actor;
-  const { data: current, error: loadError } = await supabase
-    .from("task_assignees")
-    .select("user_id, is_primary")
-    .eq("task_id", taskId);
-  if (loadError) return fail(dbError(loadError));
-
-  const currentIds = new Set(current.map((a) => a.user_id));
-  const next = new Set(parsed.data.ids);
-  const toRemove = [...currentIds].filter((id) => !next.has(id));
-  const toAdd = parsed.data.ids.filter((id) => !currentIds.has(id));
-
-  if (toRemove.length) {
-    const { data, error } = await supabase
-      .from("task_assignees")
-      .delete()
-      .eq("task_id", taskId)
-      .in("user_id", toRemove)
-      .select("id");
-    if (error) return fail(dbError(error, "Could not remove assignees."));
-    if (data.length !== toRemove.length) return fail(NOT_PERMITTED);
-  }
-
-  if (toAdd.length) {
-    const { error } = await supabase.from("task_assignees").insert(
-      toAdd.map((uid) => ({ task_id: taskId, user_id: uid, assigned_by: userId, is_primary: false })),
-    );
-    if (error) return fail(dbError(error, "Could not assign users."));
-  }
-
-  const primary = parsed.data.primary;
-  const currentPrimary = current.find((a) => a.is_primary)?.user_id ?? null;
-  if (primary && primary !== currentPrimary) {
-    // The database demotes the previous primary automatically.
-    const { data, error } = await supabase
-      .from("task_assignees")
-      .update({ is_primary: true })
-      .eq("task_id", taskId)
-      .eq("user_id", primary)
-      .select("id");
-    if (error) return fail(dbError(error, "Could not set the primary assignee."));
-    if (!data.length) return fail(NOT_PERMITTED);
-  }
+  // One database transaction: removals, additions and the primary change all
+  // succeed together or not at all (public.set_task_assignees, RLS applies).
+  const { error } = await actor.supabase.rpc("set_task_assignees", {
+    p_task_id: taskId,
+    p_user_ids: parsed.data.ids,
+    p_primary_id: parsed.data.primary ?? undefined,
+  });
+  if (error) return fail(dbError(error, "Could not update the assignees."));
 
   refresh();
   return ok();
 }
-
 export async function addComment(taskId: string, text: string): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;

@@ -114,15 +114,17 @@ export async function listProjectOptions(workspaceId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
-    .select("id, name, status, client_id, client_name, client:clients!projects_client_id_fkey(name)")
+    .select("id, name, status, is_default, client_id, client_name, client:clients!projects_client_id_fkey(name)")
     .eq("workspace_id", workspaceId)
     .neq("status", "ARCHIVED")
+    .order("is_default", { ascending: false })
     .order("name");
   if (error) throw new Error("Failed to load projects");
   return data.map((p) => ({
     id: p.id,
     name: p.name,
     status: p.status,
+    isDefault: p.is_default,
     clientId: p.client_id,
     clientName: p.client?.name ?? p.client_name,
   }));

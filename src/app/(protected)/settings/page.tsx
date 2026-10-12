@@ -6,7 +6,9 @@ import { CreateWorkspaceForm } from "@/components/settings/create-workspace-form
 import { ProfileForm } from "@/components/settings/profile-form";
 import { TimezoneForm } from "@/components/settings/timezone-form";
 import { ROLE_LABELS } from "@/lib/auth/roles";
-import { getMyWorkspaces } from "@/lib/data/workspace";
+import { MeetingLinksManager } from "@/components/settings/meeting-links-manager";
+import { listMeetingLinks } from "@/lib/data/meetings";
+import { getMyWorkspaces, getWorkspaceMembers } from "@/lib/data/workspace";
 
 import { getPageContext } from "../_components/context";
 
@@ -14,8 +16,13 @@ export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const { session, workspace } = await getPageContext();
-  const workspaces = await getMyWorkspaces();
   const { profile } = session;
+  const isSuperAdmin = profile.role === "SUPER_ADMIN";
+  const [workspaces, meetings, members] = await Promise.all([
+    getMyWorkspaces(),
+    isSuperAdmin && workspace ? listMeetingLinks(workspace.id) : Promise.resolve([]),
+    isSuperAdmin && workspace ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),
+  ]);
 
   return (
     <>
@@ -75,6 +82,18 @@ export default async function SettingsPage() {
             </div>
           ) : null}
         </Section>
+
+        {isSuperAdmin && workspace ? (
+          <div id="meetings" className="scroll-mt-20">
+            <Section title="Meeting links">
+              <MeetingLinksManager
+                workspaceId={workspace.id}
+                links={meetings}
+                memberTeams={[...new Set(members.map((m) => m.team).filter((t): t is string => Boolean(t)))]}
+              />
+            </Section>
+          </div>
+        ) : null}
 
         <Section title="Session">
           <div className="flex items-center justify-between gap-3">

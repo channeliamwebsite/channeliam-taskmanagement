@@ -1,7 +1,15 @@
 // Pure scheduling / carry-forward rules shared by My Day, lists, boards and
 // daily updates. No I/O, so they are unit-tested in scheduling.test.ts.
 
-import { formatDate, isOverdue, type TaskStatus } from "./domain.ts";
+import { formatDate, isOverdue, todayISO, type TaskStatus } from "./domain.ts";
+
+/**
+ * True when a task's completion timestamp (tasks.completed_at, maintained by
+ * the database) falls on `day` in the given timezone.
+ */
+export function isCompletedOn(completedAt: string | null, day: string, timeZone: string) {
+  return Boolean(completedAt) && todayISO(new Date(completedAt!), timeZone) === day;
+}
 
 type Schedulable = { scheduledDate: string | null; status: TaskStatus };
 

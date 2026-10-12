@@ -233,3 +233,6 @@ export function initials(name: string) {
     .map((part) => part[0]!.toUpperCase())
     .join("");
 }
+
+/** Standard teams (profiles.team, meeting_links.team). Free text is still accepted. */
+export const TEAM_OPTIONS: readonly string[] = ["Production", "Desk", "Website & SEO"];

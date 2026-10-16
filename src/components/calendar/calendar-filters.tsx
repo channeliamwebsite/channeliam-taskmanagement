@@ -4,17 +4,19 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 
 import { NativeSelect } from "@/components/ui/native-select";
-import { PRIORITIES, PRIORITY_LABELS } from "@/lib/domain";
+import { PRIORITIES, PRIORITY_LABELS, TASK_STATUSES, TASK_STATUS_LABELS } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
 export function CalendarFilters({
   isAdmin,
   clients,
   projects,
+  employees = [],
 }: {
   isAdmin: boolean;
   clients: { id: string; name: string }[];
   projects: { id: string; name: string; clientId: string | null }[];
+  employees?: { userId: string; name: string; team?: string | null }[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -32,6 +34,9 @@ export function CalendarFilters({
   }
 
   const scope = params.get("scope") === "all" ? "all" : "mine";
+  const dept = params.get("dept") ?? "";
+  const departments = [...new Set(employees.map((e) => e.team?.trim()).filter((t): t is string => Boolean(t)))].sort((a, b) => a.localeCompare(b));
+  const employeeChoices = employees.filter((e) => !dept || (dept === "none" ? !e.team?.trim() : e.team?.trim().toLowerCase() === dept.toLowerCase()));
   const projectChoices = projects.filter((p) => !client || (client === "none" ? !p.clientId : p.clientId === client));
 
   return (
@@ -58,6 +63,27 @@ export function CalendarFilters({
           ))}
         </div>
       ) : null}
+      {isAdmin ? (
+        <>
+          <NativeSelect aria-label="Department" value={dept} onChange={(e) => update({ dept: e.target.value || null, employee: null })} className="sm:w-48">
+            <option value="">All departments</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+            <option value="none">No department</option>
+          </NativeSelect>
+          <NativeSelect aria-label="Employee" value={params.get("employee") ?? ""} onChange={(e) => update({ employee: e.target.value || null })} className="sm:w-44">
+            <option value="">{scope === "mine" && !dept ? "Me" : "All employees"}</option>
+            {employeeChoices.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {m.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </>
+      ) : null}
       <NativeSelect aria-label="Client" value={client} onChange={(e) => update({ client: e.target.value || null, project: null })} className="sm:w-44">
         <option value="">All clients</option>
         {clients.map((c) => (
@@ -80,6 +106,14 @@ export function CalendarFilters({
         {PRIORITIES.map((p) => (
           <option key={p} value={p}>
             {PRIORITY_LABELS[p]}
+          </option>
+        ))}
+      </NativeSelect>
+      <NativeSelect aria-label="Status" value={params.get("status") ?? ""} onChange={(e) => update({ status: e.target.value || null })} className="sm:w-40">
+        <option value="">Any status</option>
+        {TASK_STATUSES.map((s) => (
+          <option key={s} value={s}>
+            {TASK_STATUS_LABELS[s]}
           </option>
         ))}
       </NativeSelect>

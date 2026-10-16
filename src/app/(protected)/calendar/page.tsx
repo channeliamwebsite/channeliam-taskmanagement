@@ -8,7 +8,7 @@ import { CalendarFilters } from "@/components/calendar/calendar-filters";
 import { listProjectOptions } from "@/lib/data/projects";
 import { listTasks } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
-import { addDaysISO, displayName, formatDate, isOverdue, isPriority, weekdayOf } from "@/lib/domain";
+import { addDaysISO, displayName, formatDate, isOverdue, isPriority, isTaskStatus, weekdayOf } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -42,6 +42,9 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
   const client = get("client");
   const project = get("project");
   const priority = get("priority");
+  const status = get("status");
+  const employee = isAdmin && UUID.test(get("employee") ?? "") ? get("employee")! : undefined;
+  const dept = isAdmin ? get("dept") : undefined;
 
   let days: string[];
   let prev: string;
@@ -75,9 +78,18 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
         ? projects.filter((p) => p.clientId === client).map((p) => p.id)
         : undefined;
 
+  const departmentIds = dept
+    ? members
+        .filter((m) => (dept === "none" ? !m.team?.trim() : m.team?.trim().toLowerCase() === dept.toLowerCase()))
+        .map((m) => m.userId)
+    : undefined;
+
   const tasks = await listTasks({
     workspaceId: workspace.id,
-    assigneeId: scope === "mine" ? session.user.id : undefined,
+    // Picking an employee or department looks across the team, not just the viewer's own tasks.
+    assigneeId: employee ?? (scope === "mine" && !dept ? session.user.id : undefined),
+    assigneeIds: departmentIds,
+    status: isTaskStatus(status) ? status : undefined,
     projectId: project && UUID.test(project) ? project : undefined,
     projectIds: clientProjectIds,
     priority: isPriority(priority) ? priority : undefined,
@@ -94,6 +106,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
       overdue: isOverdue(t.dueDate, t.status, today),
       where: [t.clientName, t.projectName].filter(Boolean).join(" · "),
       assignees: t.assignees.map((a) => a.fullName || a.email).join(", "),
+      progress: t.status === "COMPLETED" ? 100 : t.progress,
     };
     if (t.scheduledDate) items.push({ ...base, kind: "scheduled", date: t.scheduledDate });
     if (t.dueDate && t.dueDate !== t.scheduledDate) items.push({ ...base, kind: "due", date: t.dueDate });
@@ -104,13 +117,14 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     name: displayName({ full_name: m.fullName, email: m.email }),
     role: m.role,
     isActive: m.isActive,
+    team: m.team,
   }));
   const clients = [
     ...new Map(projects.filter((p) => p.clientId && p.clientName).map((p) => [p.clientId!, p.clientName!])).entries(),
   ].map(([id, name]) => ({ id, name }));
 
   const base = new URLSearchParams();
-  for (const k of ["scope", "client", "project", "priority"]) {
+  for (const k of ["scope", "client", "project", "priority", "status", "employee", "dept"]) {
     const v = get(k);
     if (v) base.set(k, v);
   }
@@ -154,7 +168,12 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
           })}
         </div>
       </div>
-      <CalendarFilters isAdmin={isAdmin} clients={clients} projects={projects} />
+      <CalendarFilters
+        isAdmin={isAdmin}
+        clients={clients}
+        projects={projects}
+        employees={memberOptions.filter((m) => m.isActive).sort((a, b) => a.name.localeCompare(b.name))}
+      />
       <CalendarView
         view={view}
         days={days}
@@ -163,7 +182,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
         items={items}
         canCreate
         workspaceId={workspace.id}
-        selfOnly={session.permissions.createTasks ? null : { userId: session.user.id }}
+        selfOnly={session.permissions.assignTasks ? null : { userId: session.user.id }}
         projects={projects}
         members={memberOptions}
       />

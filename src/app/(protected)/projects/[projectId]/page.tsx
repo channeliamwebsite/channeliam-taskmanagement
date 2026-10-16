@@ -16,13 +16,14 @@ import { listClients } from "@/lib/data/clients";
 import { getProject } from "@/lib/data/projects";
 import { listTasks, toTaskRows } from "@/lib/data/tasks";
 import { getWorkspaceMembers } from "@/lib/data/workspace";
-import { displayName, formatDate, isTaskStatus, todayISO } from "@/lib/domain";
+import { displayName, formatDate, isPriority, isTaskStatus, todayISO, type Priority } from "@/lib/domain";
 
 import { getPageContext } from "../../_components/context";
 
 export const metadata: Metadata = { title: "Project" };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isoDate = (v: string | undefined) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
 
 export default async function ProjectPage({ params, searchParams }: PageProps<"/projects/[projectId]">) {
   const { projectId } = await params;
@@ -44,7 +45,13 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
       projectId: project.id,
       assigneeId: assignee && UUID.test(assignee) ? assignee : undefined,
       status: isTaskStatus(status) ? status : undefined,
+      priority: isPriority(get("priority")) ? (get("priority") as Priority) : undefined,
       search: get("q"),
+      startFrom: isoDate(get("startFrom")),
+      startTo: isoDate(get("startTo")),
+      dueFrom: isoDate(get("dueFrom")),
+      dueTo: isoDate(get("dueTo")),
+      sort: (["updated", "due", "start", "priority"] as const).find((s) => s === get("sort")),
     }),
     getWorkspaceMembers(project.workspaceId),
     listActivity({ workspaceId: project.workspaceId, projectId: project.id, limit: 15 }),
@@ -56,6 +63,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
     name: displayName({ full_name: m.fullName, email: m.email }),
     role: m.role,
     isActive: m.isActive,
+    team: m.team,
   }));
   const names = new Map(memberOptions.map((m) => [m.userId, m.name]));
   const role = session.profile.role;
@@ -72,9 +80,13 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
         description={project.clientName ? `Client: ${project.clientName}` : undefined}
         actions={
           <>
-            {session.permissions.createTasks ? (
-              <NewTaskButton projects={[{ id: project.id, name: project.name }]} members={memberOptions} workspaceId={project.workspaceId} defaultProjectId={project.id} />
-            ) : null}
+            <NewTaskButton
+              projects={[{ id: project.id, name: project.name }]}
+              members={memberOptions}
+              workspaceId={project.workspaceId}
+              defaultProjectId={project.id}
+              selfOnly={session.permissions.assignTasks ? null : { userId: session.user.id }}
+            />
             {canEdit ? (
               <ProjectFormButton
                 mode="edit"
@@ -139,12 +151,12 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
         ) : null}
       </div>
 
-      <TaskFilters projects={[]} members={memberOptions} showScope={false} showProject={false} />
+      <TaskFilters projects={[]} members={memberOptions} showScope={false} showProject={false} showDepartment={false} />
       {rows.length === 0 ? (
         <EmptyState
           icon={CheckSquare}
           title="No tasks here yet"
-          description={session.permissions.createTasks ? "Add the first task for this project." : "Tasks you can access will appear here."}
+          description={session.permissions.assignTasks ? "Add the first task for this project." : "Tasks you can access will appear here."}
         />
       ) : view === "board" ? (
         <TaskBoard tasks={rows} today={today} />

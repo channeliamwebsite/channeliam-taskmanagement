@@ -3,6 +3,12 @@ import Link from "next/link";
 
 import type { MeetingLink } from "@/lib/data/meetings";
 
+/** "09:30:00" → "9:30 AM". */
+function formatMeetingTime(time: string) {
+  const [h, m] = time.split(":").map(Number);
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
 /** Today's meetings for the viewer (organisation-wide + their team). */
 export function MeetingLinksCard({ links, canManage }: { links: MeetingLink[]; canManage: boolean }) {
   if (links.length === 0 && !canManage) return null;
@@ -22,23 +28,26 @@ export function MeetingLinksCard({ links, canManage }: { links: MeetingLink[]; c
         {links.length === 0 ? (
           <p className="text-sm text-muted-foreground">No meeting links yet. Add them in Settings.</p>
         ) : (
-          <ul className="flex flex-wrap gap-2">
+          <ul className="grid gap-2 sm:grid-cols-2">
             {links.map((l) => (
-              <li key={l.id}>
+              <li key={l.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{l.title}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {l.kind === "MORNING" ? "Morning meeting" : l.kind === "EVENING" ? "Evening meeting" : "Meeting"}
+                    {l.startsAt ? ` · ${formatMeetingTime(l.startsAt)} IST` : ""}
+                    {` · ${l.team ? `${l.team} team` : "Everyone"}`}
+                    {l.schedule ? ` · ${l.schedule}` : ""}
+                  </p>
+                </div>
                 <a
                   href={l.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-muted"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                  aria-label={`Join ${l.title}`}
                 >
-                  <span className="min-w-0">
-                    <span className="block font-medium">{l.title}</span>
-                    <span className="block text-xs text-muted-foreground">
-                      {l.team ? `${l.team} team` : "Everyone"}
-                      {l.schedule ? ` · ${l.schedule}` : ""}
-                    </span>
-                  </span>
-                  <ExternalLink className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  Join meeting <ExternalLink className="size-3.5" aria-hidden="true" />
                 </a>
               </li>
             ))}

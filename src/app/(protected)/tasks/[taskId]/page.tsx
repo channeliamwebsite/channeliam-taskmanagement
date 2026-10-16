@@ -13,9 +13,9 @@ import { ScheduleInput } from "@/components/tasks/schedule-input";
 import { TaskList } from "@/components/tasks/task-list";
 import { TaskStatusSelect } from "@/components/tasks/task-status-select";
 import { listActivity } from "@/lib/data/activity";
-import { getParentCandidates, getTask, getTaskComments, toTaskRows } from "@/lib/data/tasks";
+import { getParentCandidates, getTask, getTaskComments, toTaskRows, assignedAtOf, priorityTargetInfo } from "@/lib/data/tasks";
 import { getWorkspaceMembers } from "@/lib/data/workspace";
-import { TASK_TYPE_LABELS, displayName, formatDate, formatDateTime, isOverdue, todayISO } from "@/lib/domain";
+import { TASK_TYPE_LABELS, displayName, formatDate, formatDateTime, isOverdue, todayISO, PRIORITY_LABELS, formatTargetHours } from "@/lib/domain";
 
 import { getPageContext } from "../../_components/context";
 
@@ -43,9 +43,11 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
     name: displayName({ full_name: m.fullName, email: m.email }),
     role: m.role,
     isActive: m.isActive,
+    team: m.team,
   }));
   const names = new Map(memberOptions.map((m) => [m.userId, m.name]));
   const today = todayISO();
+  const targetInfo = priorityTargetInfo(task);
   const overdue = isOverdue(task.dueDate, task.status, today);
   const { canManage, canUpdateStatus, canDelete } = task.permissions;
   const canAssign = canManage && session.profile.role !== "INDIVIDUAL";
@@ -126,10 +128,11 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
           <Section
             title={`Subtasks${task.subtasks.length ? ` (${task.subtasks.length})` : ""}`}
             action={
-              canManage && session.permissions.createTasks ? (
+              canManage || task.createdBy === session.user.id ? (
                 <NewTaskButton
                   projects={[]}
                   members={memberOptions}
+                  selfOnly={session.permissions.assignTasks ? null : { userId: session.user.id }}
                   parentTask={{ id: task.id, title: task.title, projectId: task.projectId }}
                   variant="outline"
                   size="sm"
@@ -192,6 +195,20 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
               <div className="flex justify-between gap-2">
                 <dt className="text-muted-foreground">Logged</dt>
                 <dd>{task.actualHours} h</dd>
+              </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Assigned</dt>
+                <dd>{formatDateTime(assignedAtOf(task))}</dd>
+              </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Priority target</dt>
+                <dd
+                  className={targetInfo.missed ? "font-medium text-red-600" : undefined}
+                  title={`${PRIORITY_LABELS[task.priority]}: within ${formatTargetHours(task.priority)} of assignment`}
+                >
+                  {formatDateTime(targetInfo.target?.toISOString())}
+                  {targetInfo.missed ? " (missed)" : ""}
+                </dd>
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-muted-foreground">Created by</dt>

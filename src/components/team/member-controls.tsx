@@ -26,6 +26,7 @@ import {
   updateMemberProfile,
 } from "@/lib/actions/workspace";
 import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
+import { TEAM_OPTIONS } from "@/lib/domain";
 
 const ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "INDIVIDUAL"];
 
@@ -92,7 +93,7 @@ export function MemberActions({
                 setEditOpen(true);
               }}
             >
-              Edit role, team & manager
+              Edit role, department & manager
             </DropdownMenuItem>
             {member.role === "ADMIN" ? (
               <DropdownMenuItem
@@ -151,8 +152,13 @@ export function MemberActions({
               <Input id="member-department" value={department} onChange={(e) => setDepartment(e.target.value)} maxLength={200} className="h-9" />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="member-team">Team</Label>
-              <Input id="member-team" value={team} onChange={(e) => setTeam(e.target.value)} maxLength={100} placeholder="e.g. Production, Desk, Website & SEO" className="h-9" />
+              <Label htmlFor="member-team">Department</Label>
+              <Input id="member-team" list="member-team-options" value={team} onChange={(e) => setTeam(e.target.value)} maxLength={100} placeholder="e.g. News Desk" className="h-9" />
+              <datalist id="member-team-options">
+                {TEAM_OPTIONS.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="member-manager">Reports to</Label>

@@ -48,7 +48,9 @@ export function getPermissions(role: UserRole) {
     viewAllReports: isSuperAdmin,
     viewOrganizationActivity: isSuperAdmin,
     createWorkspaces: isSuperAdmin,
-    createTasks: isAdminOrAbove,
+    // Everyone may create tasks for themselves; assigning work to other
+    // people is a separate, admin-and-above permission (also enforced in RLS).
+    createTasks: true,
     assignTasks: isAdminOrAbove,
     viewTeam: isAdminOrAbove,
     viewTeamReports: isAdminOrAbove,

@@ -58,6 +58,7 @@ export async function saveDailyReport(input: DailyReportInput): Promise<ActionRe
     blockers: cleanText(input.blockers, 10000),
     tomorrow_plan: cleanText(input.tomorrowPlan, 10000),
     linked_task_ids: linked,
+    evening_submitted_at: new Date().toISOString(),
   };
 
   const { data: existing, error: loadError } = await supabase
@@ -75,6 +76,48 @@ export async function saveDailyReport(input: DailyReportInput): Promise<ActionRe
         .from("daily_reports")
         .insert({ ...fields, user_id: userId, workspace_id: workspace.id, report_date: today });
   if (error) return fail(dbError(error, "Could not save the report."));
+
+  refresh();
+  return ok();
+}
+
+/**
+ * Morning plan for today (workspace timezone). The planned tasks are taken
+ * from the database — today's workload including carried-forward and blocked
+ * work — so employees only add notes. Stored on the same daily_reports row
+ * the evening report later completes.
+ */
+export async function saveMorningPlan(workspaceId: string, notes: string | null): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (!isUuid(workspaceId)) return fail("Invalid workspace.");
+
+  const { supabase, userId } = actor;
+  const { data: workspace } = await supabase.from("workspaces").select("id, timezone").eq("id", workspaceId).maybeSingle();
+  if (!workspace) return fail("Workspace not found.");
+
+  const tz = workspace.timezone || BUSINESS_TIMEZONE;
+  const today = todayISO(new Date(), tz);
+  const day = await summarizeDay(workspace.id, userId, today, tz);
+  const fields = {
+    morning_plan: cleanText(notes, 10000),
+    planned_task_ids: [...new Set([...day.notCompleted, ...day.blocked].map((t) => t.id))].slice(0, 100),
+    morning_submitted_at: new Date().toISOString(),
+  };
+
+  const { data: existing, error: loadError } = await supabase
+    .from("daily_reports")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("workspace_id", workspace.id)
+    .eq("report_date", today)
+    .maybeSingle();
+  if (loadError) return fail(dbError(loadError));
+
+  const { error } = existing
+    ? await supabase.from("daily_reports").update(fields).eq("id", existing.id)
+    : await supabase.from("daily_reports").insert({ ...fields, user_id: userId, workspace_id: workspace.id, report_date: today });
+  if (error) return fail(dbError(error, "Could not save the morning plan."));
 
   refresh();
   return ok();

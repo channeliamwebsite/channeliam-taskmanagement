@@ -17,6 +17,11 @@ import {
   PRIORITY_LABELS,
   TASK_STATUSES,
   TASK_STATUS_LABELS,
+  TEAM_OPTIONS,
+  formatDateTime,
+  formatTargetHours,
+  priorityTarget,
+  todayISO,
   type Priority,
   type TaskStatus,
   type TaskType,
@@ -90,7 +95,10 @@ export function TaskFormDialog(props: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const initialValues =
-    props.mode === "edit" ? props.initial : { ...EMPTY, scheduledDate: props.defaultScheduledDate ?? "" };
+    props.mode === "edit"
+      ? props.initial
+      : { ...EMPTY, startDate: props.defaultScheduledDate ?? todayISO(), scheduledDate: props.defaultScheduledDate ?? "" };
+  const [department, setDepartment] = useState("");
   const [values, setValues] = useState<TaskFormValues>(initialValues);
 
   const isCreate = props.mode === "create";
@@ -122,7 +130,7 @@ export function TaskFormDialog(props: Props) {
   const effectiveProjectId = projectId || generalProject?.id || "";
 
   // Parent-task choices for the chosen project (admins, create mode, when expanded).
-  const loadParents = props.mode === "create" && !props.parentTask && !selfOnly && props.open && showMore;
+  const loadParents = props.mode === "create" && !props.parentTask && props.open && showMore;
   useEffect(() => {
     if (!loadParents || !effectiveProjectId) return;
     let cancelled = false;
@@ -148,6 +156,7 @@ export function TaskFormDialog(props: Props) {
     event.preventDefault();
     setError(null);
     if (!values.title.trim()) return setError("Title is required.");
+    if (isCreate && (!values.startDate || !values.dueDate)) return setError("Start date and due date are required.");
     if (values.startDate && values.dueDate && values.dueDate < values.startDate) {
       return setError("Due date cannot be before the start date.");
     }
@@ -224,19 +233,28 @@ export function TaskFormDialog(props: Props) {
   );
   const startField = (
     <div className="grid gap-1.5">
-      <Label htmlFor="task-start">Start date</Label>
+      <Label htmlFor="task-start">Start date{isCreate ? <span className="text-destructive"> *</span> : null}</Label>
       <Input id="task-start" type="date" value={values.startDate} onChange={(e) => set("startDate", e.target.value)} className="h-9" />
     </div>
   );
+  // Priority target from "now" (the assignment time is recorded by the
+  // database when the task is created). Informational; never overwrites the due date.
+  const target = isCreate ? priorityTarget(new Date(), values.priority) : null;
+  const targetDate = target ? todayISO(target) : null;
+  const departments = [
+    ...new Set([...TEAM_OPTIONS, ...props.members.map((m) => m.team).filter((t): t is string => Boolean(t))]),
+  ];
+  const pickerMembers = department ? props.members.filter((m) => (m.team ?? "") === department) : props.members;
+
   const scheduledField = (
     <div className="grid gap-1.5">
-      <Label htmlFor="task-scheduled">Scheduled for</Label>
+      <Label htmlFor="task-scheduled">{isCreate ? "Plan for (defaults to start date)" : "Scheduled for"}</Label>
       <Input id="task-scheduled" type="date" value={values.scheduledDate} onChange={(e) => set("scheduledDate", e.target.value)} className="h-9" />
     </div>
   );
   const dueField = (
     <div className="grid gap-1.5">
-      <Label htmlFor="task-due">Due date</Label>
+      <Label htmlFor="task-due">Due date{isCreate ? <span className="text-destructive"> *</span> : null}</Label>
       <Input id="task-due" type="date" value={values.dueDate} onChange={(e) => set("dueDate", e.target.value)} className="h-9" />
     </div>
   );
@@ -261,8 +279,8 @@ export function TaskFormDialog(props: Props) {
           <DialogDescription>
             {isCreate
               ? selfOnly
-                ? "Add a task for yourself. Leave the date empty to plan it for today."
-                : "Title and at least one assignee are required. Leave the date empty to plan it for today."
+                ? "Add a task for yourself. Optionally pick a client/project or make it a subtask of one of your tasks."
+                : "Title, dates, priority and at least one assignee are required."
               : "Update the task details."}
           </DialogDescription>
         </DialogHeader>
@@ -294,11 +312,26 @@ export function TaskFormDialog(props: Props) {
               <p className="text-sm text-muted-foreground">Assigned to you.</p>
             ) : (
               <div className="grid gap-1.5">
-                <span className="text-sm font-medium">
-                  Assignees <span className="text-destructive">*</span>
-                </span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium">
+                    Assignees <span className="text-destructive">*</span>
+                  </span>
+                  <NativeSelect
+                    aria-label="Filter assignees by department"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    className="w-52"
+                  >
+                    <option value="">All departments</option>
+                    {departments.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </div>
                 <AssigneePicker
-                  members={props.members}
+                  members={pickerMembers}
                   selected={assignees}
                   primaryId={primaryId}
                   disabled={pending}
@@ -314,13 +347,26 @@ export function TaskFormDialog(props: Props) {
           {props.mode === "create" ? (
             <>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {scheduledField}
+                {startField}
                 {dueField}
                 {priorityField}
               </div>
+              {target ? (
+                <p className="-mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <span>
+                    {PRIORITY_LABELS[values.priority]} target: within {formatTargetHours(values.priority)} — by{" "}
+                    <span className="font-medium text-foreground">{formatDateTime(target.toISOString())} IST</span> if assigned now.
+                  </span>
+                  {targetDate && values.dueDate !== targetDate ? (
+                    <button type="button" className="underline hover:text-foreground" onClick={() => set("dueDate", targetDate)}>
+                      Use target date as due date
+                    </button>
+                  ) : null}
+                </p>
+              ) : null}
               {descriptionField}
 
-              {!props.parentTask && !selfOnly ? (
+              {!props.parentTask ? (
                 <div className="grid gap-3">
                   <button
                     type="button"
@@ -391,7 +437,7 @@ export function TaskFormDialog(props: Props) {
                       ) : null}
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {statusField}
-                        {startField}
+                        {scheduledField}
                       </div>
                     </>
                   ) : null}

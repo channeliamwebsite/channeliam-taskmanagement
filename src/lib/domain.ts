@@ -211,14 +211,32 @@ export function formatDate(date: string | null | undefined) {
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export function formatDateTime(value: string | null | undefined) {
+/** Timestamps (stored as timestamptz/UTC) shown in the business timezone (IST). */
+export function formatDateTime(value: string | null | undefined, timeZone: string = BUSINESS_TIMEZONE) {
   if (!value) return "—";
   return new Date(value).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
+}
+
+/** Priority response targets, measured from assignment time. P1→P4 = URGENT→LOW. */
+export const PRIORITY_TARGET_HOURS: Record<Priority, number> = { URGENT: 2, HIGH: 6, MEDIUM: 48, LOW: 120 };
+
+/** Target completion time: assignment time + the priority's target hours. */
+export function priorityTarget(assignedAt: string | Date | null | undefined, priority: Priority): Date | null {
+  if (!assignedAt) return null;
+  const start = new Date(assignedAt);
+  if (Number.isNaN(start.getTime())) return null;
+  return new Date(start.getTime() + PRIORITY_TARGET_HOURS[priority] * 3_600_000);
+}
+
+export function formatTargetHours(priority: Priority) {
+  const h = PRIORITY_TARGET_HOURS[priority];
+  return h >= 48 ? `${h / 24} days` : `${h} hours`;
 }
 
 export function displayName(profile: { full_name?: string | null; email?: string | null } | null | undefined) {
@@ -234,5 +252,17 @@ export function initials(name: string) {
     .join("");
 }
 
-/** Standard teams (profiles.team, meeting_links.team). Free text is still accepted. */
-export const TEAM_OPTIONS: readonly string[] = ["Production", "Desk", "Website & SEO"];
+/**
+ * Channeliam operational areas ("departments"), stored in profiles.team and
+ * meeting_links.team. Free text is still accepted for other teams.
+ */
+export const TEAM_OPTIONS: readonly string[] = ["News Desk", "Creatives", "Digital Marketing & Website"];
+
+export const BUG_STATUSES = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"] as const;
+export type BugStatus = (typeof BUG_STATUSES)[number];
+export const BUG_STATUS_LABELS: Record<BugStatus, string> = {
+  OPEN: "Open",
+  IN_PROGRESS: "In progress",
+  RESOLVED: "Resolved",
+  CLOSED: "Closed",
+};

@@ -2,7 +2,7 @@
 
 import { refresh } from "next/cache";
 
-import { NOT_PERMITTED, cleanText, dbError, fail, getActor, isUuid, ok, type ActionResult } from "./shared";
+import { NOT_PERMITTED, cleanText, dbError, fail, getActor, isUuid, ok, parseDate, type ActionResult } from "./shared";
 
 export type MeetingLinkInput = {
   title: string;
@@ -12,6 +12,11 @@ export type MeetingLinkInput = {
   schedule?: string | null;
   sortOrder?: number;
   isActive?: boolean;
+  kind?: "MORNING" | "EVENING" | "OTHER";
+  /** HH:MM, workspace local time. */
+  startsAt?: string | null;
+  /** YYYY-MM-DD for a one-off meeting; empty = every day. */
+  meetingDate?: string | null;
 };
 
 /** Only https links to a real host are accepted (the database enforces this too). */
@@ -30,6 +35,12 @@ function validate(input: MeetingLinkInput) {
   const url = validUrl(input.url ?? "");
   if (!url) return fail("Enter a valid https:// meeting link.");
   const order = Math.round(Number(input.sortOrder ?? 0));
+  const kind = input.kind ?? "OTHER";
+  if (!["MORNING", "EVENING", "OTHER"].includes(kind)) return fail("Choose a meeting type.");
+  const startsAt = input.startsAt?.trim() || null;
+  if (startsAt !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startsAt)) return fail("Enter a valid time.");
+  const meetingDate = parseDate(input.meetingDate);
+  if (meetingDate === undefined) return fail("Enter a valid date.");
   return ok({
     title,
     url,
@@ -37,6 +48,9 @@ function validate(input: MeetingLinkInput) {
     schedule: cleanText(input.schedule, 200),
     sort_order: Number.isFinite(order) ? order : 0,
     is_active: input.isActive ?? true,
+    kind,
+    starts_at: startsAt,
+    meeting_date: meetingDate,
   });
 }
 

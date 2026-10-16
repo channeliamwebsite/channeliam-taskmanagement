@@ -33,7 +33,7 @@ export default async function MyDayPage() {
 
   const today = workspaceToday(workspace);
   const tomorrow = addDaysISO(today, 1);
-  const canAssign = session.permissions.createTasks;
+  const canAssign = session.permissions.assignTasks;
   const [tasks, meetings, projects, members] = await Promise.all([
     listTasks({ workspaceId: workspace.id, assigneeId: session.user.id }),
     listMeetingLinks(workspace.id, { activeOnly: true }),
@@ -45,6 +45,7 @@ export default async function MyDayPage() {
     name: displayName({ full_name: m.fullName, email: m.email }),
     role: m.role,
     isActive: m.isActive,
+    team: m.team,
   }));
   const open = tasks.filter(isOpen);
   const placed = new Set<string>();
@@ -88,7 +89,7 @@ export default async function MyDayPage() {
 
       <div className="mb-6">
         <MeetingLinksCard
-          links={meetingsForPerson(meetings, session.profile.team)}
+          links={meetingsForPerson(meetings, session.profile.team, today)}
           canManage={session.profile.role === "SUPER_ADMIN"}
         />
       </div>

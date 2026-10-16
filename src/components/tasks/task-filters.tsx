@@ -16,12 +16,14 @@ export function TaskFilters({
   clients = [],
   showScope = true,
   showProject = true,
+  showDepartment = true,
 }: {
   projects: { id: string; name: string; clientId?: string | null }[];
-  members: { userId: string; name: string }[];
+  members: { userId: string; name: string; team?: string | null }[];
   clients?: { id: string; name: string }[];
   showScope?: boolean;
   showProject?: boolean;
+  showDepartment?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -38,7 +40,9 @@ export function TaskFilters({
   const view = params.get("view") === "board" ? "board" : "list";
   const scope = params.get("scope") ?? "mine";
   const q = params.get("q");
-  const hasFilters = Boolean(params.get("project") || params.get("client") || params.get("assignee") || params.get("status") || params.get("priority") || q);
+  const FILTER_KEYS = ["project", "client", "assignee", "status", "priority", "dept", "startFrom", "startTo", "dueFrom", "dueTo", "sort", "q"];
+  const hasFilters = FILTER_KEYS.some((k) => params.get(k));
+  const departments = [...new Set(members.map((m) => m.team?.trim()).filter((t): t is string => Boolean(t)))].sort((a, b) => a.localeCompare(b));
   const clientFilter = params.get("client");
   const projectChoices = projects.filter((p) => !clientFilter || (clientFilter === "none" ? !p.clientId : p.clientId === clientFilter));
 
@@ -148,6 +152,22 @@ export function TaskFilters({
             </option>
           ))}
         </NativeSelect>
+        {showDepartment && departments.length ? (
+          <NativeSelect
+            aria-label="Filter by department"
+            value={params.get("dept") ?? ""}
+            onChange={(e) => update("dept", e.target.value || null)}
+            className="sm:w-48"
+          >
+            <option value="">Any department</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+            <option value="none">No department</option>
+          </NativeSelect>
+        ) : null}
         <NativeSelect
           aria-label="Filter by status"
           value={params.get("status") ?? ""}
@@ -174,6 +194,37 @@ export function TaskFilters({
             </option>
           ))}
         </NativeSelect>
+        <NativeSelect
+          aria-label="Sort by"
+          value={params.get("sort") ?? ""}
+          onChange={(e) => update("sort", e.target.value || null)}
+          className="sm:w-40"
+        >
+          <option value="">Recently updated</option>
+          <option value="due">Due date</option>
+          <option value="start">Start date</option>
+          <option value="priority">Priority</option>
+        </NativeSelect>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:flex sm:flex-wrap sm:items-center">
+        {(
+          [
+            ["startFrom", "Start from"],
+            ["startTo", "Start to"],
+            ["dueFrom", "Due from"],
+            ["dueTo", "Due to"],
+          ] as const
+        ).map(([key, label]) => (
+          <label key={key} className="flex flex-col gap-1 sm:flex-row sm:items-center">
+            {label}
+            <input
+              type="date"
+              value={params.get(key) ?? ""}
+              onChange={(e) => update(key, e.target.value || null)}
+              className="h-8 rounded-lg border bg-transparent px-2 text-sm text-foreground"
+            />
+          </label>
+        ))}
         {hasFilters ? (
           <Button
             variant="ghost"

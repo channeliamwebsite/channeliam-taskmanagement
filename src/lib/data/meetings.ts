@@ -10,6 +10,11 @@ export type MeetingLink = {
   schedule: string | null;
   sortOrder: number;
   isActive: boolean;
+  kind: "MORNING" | "EVENING" | "OTHER";
+  /** HH:MM:SS (workspace local time) or null. */
+  startsAt: string | null;
+  /** One-off date, or null for a recurring daily meeting. */
+  meetingDate: string | null;
 };
 
 /**
@@ -20,7 +25,7 @@ export async function listMeetingLinks(workspaceId: string, opts: { activeOnly?:
   const supabase = await createClient();
   let query = supabase
     .from("meeting_links")
-    .select("id, team, title, url, schedule, sort_order, is_active")
+    .select("id, team, title, url, schedule, sort_order, is_active, kind, starts_at, meeting_date")
     .eq("workspace_id", workspaceId)
     .order("sort_order")
     .order("title");
@@ -35,11 +40,22 @@ export async function listMeetingLinks(workspaceId: string, opts: { activeOnly?:
     schedule: m.schedule,
     sortOrder: m.sort_order,
     isActive: m.is_active,
+    kind: (m.kind === "MORNING" || m.kind === "EVENING" ? m.kind : "OTHER") as MeetingLink["kind"],
+    startsAt: m.starts_at,
+    meetingDate: m.meeting_date,
   }));
 }
 
-/** The meetings relevant to one person: organisation-wide plus their team's. */
-export function meetingsForPerson(links: MeetingLink[], team: string | null) {
+const KIND_ORDER = { MORNING: 0, EVENING: 1, OTHER: 2 } as const;
+
+/**
+ * Today's meetings relevant to one person: organisation-wide plus their
+ * team's, recurring or dated today; morning first, then by start time.
+ */
+export function meetingsForPerson(links: MeetingLink[], team: string | null, today?: string) {
   const mine = team?.trim().toLowerCase() ?? null;
-  return links.filter((l) => l.isActive && (l.team === null || (mine !== null && l.team.trim().toLowerCase() === mine)));
+  return links
+    .filter((l) => l.isActive && (l.team === null || (mine !== null && l.team.trim().toLowerCase() === mine)))
+    .filter((l) => !today || l.meetingDate === null || l.meetingDate === today)
+    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (a.startsAt ?? "99").localeCompare(b.startsAt ?? "99") || a.sortOrder - b.sortOrder);
 }

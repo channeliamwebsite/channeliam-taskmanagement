@@ -5,7 +5,7 @@ import Link from "next/link";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { UserAvatar } from "@/components/app/user-avatar";
 import { AddMemberButton, MemberActions } from "@/components/team/member-controls";
-import { ROLE_LABELS, ROUTE_ROLES } from "@/lib/auth/roles";
+import { ROLE_LABELS, ROLES, ROUTE_ROLES } from "@/lib/auth/roles";
 import { listTasks } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, isOverdue } from "@/lib/domain";
@@ -15,9 +15,18 @@ import { NoWorkspace, getPageContext } from "../_components/context";
 
 export const metadata: Metadata = { title: "Team" };
 
-export default async function TeamPage() {
+const selectClass = "h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground";
+
+export default async function TeamPage({ searchParams }: PageProps<"/team">) {
   const { session, workspace } = await getPageContext(ROUTE_ROLES["/team"]);
   if (!workspace) return <NoWorkspace session={session} />;
+
+  const params = await searchParams;
+  const get = (k: string) => (typeof params[k] === "string" ? (params[k] as string).trim() : "");
+  const q = get("q").slice(0, 100);
+  const dept = get("dept");
+  const role = get("role");
+  const active = get("active");
 
   const [members, tasks] = await Promise.all([
     getWorkspaceMembers(workspace.id),
@@ -40,6 +49,16 @@ export default async function TeamPage() {
   }
 
   const myTeam = members.filter((m) => m.managerId === me && m.isActive);
+  const departments = [...new Set(members.map((m) => m.team?.trim()).filter((t): t is string => Boolean(t)))].sort((a, b) => a.localeCompare(b));
+  const filtered = members.filter((m) => {
+    const name = nameOf.get(m.userId)!.toLowerCase();
+    if (q && !name.includes(q.toLowerCase()) && !(m.email ?? "").toLowerCase().includes(q.toLowerCase())) return false;
+    if (dept && (dept === "__none__" ? Boolean(m.team?.trim()) : m.team?.trim().toLowerCase() !== dept.toLowerCase())) return false;
+    if (role && m.role !== role) return false;
+    if (active === "active" && !m.isActive) return false;
+    if (active === "inactive" && m.isActive) return false;
+    return true;
+  });
   const managers = members
     .filter((m) => m.isActive && m.role !== "INDIVIDUAL")
     .map((m) => ({ userId: m.userId, name: nameOf.get(m.userId)! }));
@@ -81,8 +100,55 @@ export default async function TeamPage() {
         )}
       </Section>
 
-      {members.length === 0 ? (
-        <EmptyState icon={Users} title="No members yet" />
+      <form action="/team" className="mb-3 flex flex-wrap items-end gap-2">
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Name
+          <input type="search" name="q" defaultValue={q} placeholder="Name or email" className={cn(selectClass, "w-48 px-2.5")} />
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Department
+          <select name="dept" defaultValue={dept} className={selectClass}>
+            <option value="">All departments</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+            <option value="__none__">No department</option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Role
+          <select name="role" defaultValue={role} className={selectClass}>
+            <option value="">All roles</option>
+            {Object.values(ROLES).map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABELS[r]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Status
+          <select name="active" defaultValue={active} className={selectClass}>
+            <option value="">Active and inactive</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </label>
+        <button type="submit" className="h-9 rounded-lg border px-3 text-sm hover:bg-muted">
+          Apply
+        </button>
+        <Link href="/team" className="h-9 px-2 text-sm leading-9 text-muted-foreground hover:underline">
+          Clear
+        </Link>
+        <span className="ml-auto self-center text-xs text-muted-foreground">
+          Showing {filtered.length} of {members.length}
+        </span>
+      </form>
+
+      {filtered.length === 0 ? (
+        <EmptyState icon={Users} title={members.length ? "No members match these filters" : "No members yet"} />
       ) : (
         <div className="overflow-x-auto rounded-xl border bg-card">
           <table className="w-full min-w-[48rem] text-sm">
@@ -90,7 +156,7 @@ export default async function TeamPage() {
               <tr>
                 <th className="px-4 py-2 font-medium">Member</th>
                 <th className="px-3 py-2 font-medium">Role</th>
-                <th className="px-3 py-2 font-medium">Team</th>
+                <th className="px-3 py-2 font-medium">Department</th>
                 <th className="px-3 py-2 font-medium">Reports to</th>
                 <th className="px-3 py-2 text-right font-medium">Open</th>
                 <th className="px-3 py-2 text-right font-medium">Overdue</th>
@@ -100,7 +166,7 @@ export default async function TeamPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {members.map((m) => {
+              {filtered.map((m) => {
                 const name = nameOf.get(m.userId)!;
                 const s = stats.get(m.userId) ?? { open: 0, overdue: 0, blocked: 0 };
                 return (

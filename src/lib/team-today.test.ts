@@ -37,7 +37,8 @@ describe("buildTeamToday", () => {
     task({ id: "t-blocked", assigneeIds: ["u2"], status: "BLOCKED" }),
     task({ id: "t-shared", assigneeIds: ["u1", "u2"] }),
   ];
-  const [asha, bala] = buildTeamToday(employees, tasks, new Set(["u2"]), today, tz);
+  const reports = new Map([["u2", { morning: true, evening: true }], ["u1", { morning: true, evening: false }]]);
+  const [asha, bala] = buildTeamToday(employees, tasks, reports, today, tz);
 
   it("counts today's workload, completions and carry-forward per employee", () => {
     // Pending: today, in-progress (scheduled today), carried, shared = 4; done today = 1.
@@ -56,15 +57,16 @@ describe("buildTeamToday", () => {
     }
   });
 
-  it("tracks blocked work and daily update submission", () => {
+  it("tracks blocked work and morning/evening submission", () => {
     assert.equal(bala!.blocked, 1);
     assert.equal(bala!.pending, 2); // blocked task (scheduled today) + shared task
-    assert.equal(bala!.reportSubmitted, true);
-    assert.equal(asha!.reportSubmitted, false);
+    assert.equal(bala!.eveningSubmitted, true);
+    assert.equal(asha!.morningSubmitted, true);
+    assert.equal(asha!.eveningSubmitted, false);
   });
 
   it("reports 0% progress when nothing is planned", () => {
-    const [idle] = buildTeamToday([{ userId: "u3", name: "Idle" }], tasks, new Set(), today, tz);
+    const [idle] = buildTeamToday([{ userId: "u3", name: "Idle" }], tasks, new Map(), today, tz);
     assert.equal(idle!.planned, 0);
     assert.equal(idle!.progress, 0);
   });
@@ -73,7 +75,8 @@ describe("buildTeamToday", () => {
     const totals = teamTotals([asha!, bala!]);
     assert.equal(totals.planned, 7);
     assert.equal(totals.completed, 1);
-    assert.equal(totals.reportsSubmitted, 1);
+    assert.equal(totals.morningSubmitted, 2);
+    assert.equal(totals.eveningSubmitted, 1);
     assert.equal(totals.progress, 14);
   });
 });

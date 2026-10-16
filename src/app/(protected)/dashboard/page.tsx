@@ -11,8 +11,8 @@ import {
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { ActivityFeed } from "@/components/app/activity-feed";
 import { ProgressBar } from "@/components/app/badges";
+import { MeetingLinksCard } from "@/components/app/meeting-links-card";
 import { PageHeader, Section } from "@/components/app/page-header";
 import {
   CompactTaskList,
@@ -21,10 +21,12 @@ import {
   WorkloadTable,
   type Workload,
 } from "@/components/dashboard/widgets";
+import { TeamTodayPanel } from "@/components/team/team-today-panel";
 import { buttonVariants } from "@/components/ui/button";
 import type { Session } from "@/lib/auth/dal";
 import { ROLE_LABELS } from "@/lib/auth/roles";
-import { listActivity } from "@/lib/data/activity";
+import { listMeetingLinks, meetingsForPerson } from "@/lib/data/meetings";
+import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
 import { getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
@@ -62,15 +64,16 @@ export default async function DashboardPage() {
   const { session, workspace } = await getPageContext();
   if (!workspace) return <NoWorkspace session={session} />;
 
-  const [tasks, projects, activity, members] = await Promise.all([
+  const showTeam = session.profile.role !== "INDIVIDUAL";
+  const [tasks, projects, members, team, meetings] = await Promise.all([
     listTasks({ workspaceId: workspace.id }),
     listProjects(workspace.id),
-    listActivity({ workspaceId: workspace.id, limit: 12 }),
     getWorkspaceMembers(workspace.id),
+    showTeam ? loadTeamToday(session, workspace) : Promise.resolve(null),
+    listMeetingLinks(workspace.id, { activeOnly: true }),
   ]);
 
   const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
-  const names = new Map(members.map((m) => [m.userId, displayName({ full_name: m.fullName, email: m.email })]));
   const props = { session, workspace, tasks, projects, members, today: workspaceToday(workspace) };
 
   return (
@@ -79,6 +82,17 @@ export default async function DashboardPage() {
         title={`Welcome back, ${name}`}
         description={`${ROLE_LABELS[session.profile.role]} · ${workspace.name}`}
       />
+      <div className="mb-6">
+        <MeetingLinksCard
+          links={meetingsForPerson(meetings, session.profile.team, workspaceToday(workspace))}
+          canManage={session.profile.role === "SUPER_ADMIN"}
+        />
+      </div>
+      {team ? (
+        <Section title={`Today — employee progress (${team.rows.length})`} className="mb-6">
+          <TeamTodayPanel rows={team.rows} tasksByUser={team.tasksByUser} totals={team.totals} today={team.today} />
+        </Section>
+      ) : null}
       {session.profile.role === "SUPER_ADMIN" ? (
         <SuperAdminDashboard {...props} />
       ) : session.profile.role === "ADMIN" ? (
@@ -86,9 +100,6 @@ export default async function DashboardPage() {
       ) : (
         <IndividualDashboard {...props} />
       )}
-      <Section title="Recent activity" className="mt-6">
-        <ActivityFeed items={activity} names={names} emptyText="No activity yet. Changes to tasks and projects will show up here." />
-      </Section>
     </>
   );
 }

@@ -26,7 +26,9 @@ export type EmployeeDay = Employee & {
   blocked: number;
   /** completedToday / planned, 0–100 (0 when nothing is planned). */
   progress: number;
-  reportSubmitted: boolean;
+  /** Morning plan / evening report submitted for today. */
+  morningSubmitted: boolean;
+  eveningSubmitted: boolean;
   /** Ids of the tasks behind these numbers, for the expandable row. */
   taskIds: string[];
 };
@@ -34,7 +36,7 @@ export type EmployeeDay = Employee & {
 export function buildTeamToday(
   employees: Employee[],
   tasks: TeamTask[],
-  submittedUserIds: ReadonlySet<string>,
+  reports: ReadonlyMap<string, { morning: boolean; evening: boolean }>,
   today: string,
   timeZone: string,
 ): EmployeeDay[] {
@@ -60,7 +62,8 @@ export function buildTeamToday(
       overdue: overdue.length,
       blocked: blocked.length,
       progress: planned ? Math.round((completedTasks.length / planned) * 100) : 0,
-      reportSubmitted: submittedUserIds.has(e.userId),
+      morningSubmitted: reports.get(e.userId)?.morning ?? false,
+      eveningSubmitted: reports.get(e.userId)?.evening ?? false,
       taskIds: [...ids],
     };
   });
@@ -78,7 +81,8 @@ export function teamTotals(rows: EmployeeDay[]) {
     carriedForward: sum("carriedForward"),
     overdue: sum("overdue"),
     blocked: sum("blocked"),
-    reportsSubmitted: rows.filter((r) => r.reportSubmitted).length,
+    morningSubmitted: rows.filter((r) => r.morningSubmitted).length,
+    eveningSubmitted: rows.filter((r) => r.eveningSubmitted).length,
     progress: planned ? Math.round((completed / planned) * 100) : 0,
   };
 }

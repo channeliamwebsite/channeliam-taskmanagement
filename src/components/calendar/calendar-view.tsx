@@ -20,6 +20,8 @@ export type CalendarItem = {
   overdue: boolean;
   where: string;
   assignees: string;
+  /** 0–100. */
+  progress: number;
 };
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -29,7 +31,7 @@ function Item({ item, compact }: { item: CalendarItem; compact: boolean }) {
   return (
     <Link
       href={`/tasks/${item.id}`}
-      title={`${item.title} — ${item.kind === "due" ? "due" : "scheduled"} · ${TASK_STATUS_LABELS[item.status]}${item.where ? ` · ${item.where}` : ""}`}
+      title={`${item.title} — ${item.kind === "due" ? "due" : "scheduled"} · ${TASK_STATUS_LABELS[item.status]} · ${item.progress}%${item.where ? ` · ${item.where}` : ""}`}
       onClick={(e) => e.stopPropagation()}
       className={cn(
         "flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[11px] hover:bg-muted",
@@ -45,6 +47,9 @@ function Item({ item, compact }: { item: CalendarItem; compact: boolean }) {
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <span className="hidden text-muted-foreground sm:inline">{item.where}</span>
           <span className="hidden text-muted-foreground md:inline">{item.assignees}</span>
+          <span className="text-muted-foreground tabular-nums">
+            {TASK_STATUS_LABELS[item.status]} · {item.progress}%
+          </span>
           <PriorityBadge priority={item.priority} />
         </span>
       ) : null}

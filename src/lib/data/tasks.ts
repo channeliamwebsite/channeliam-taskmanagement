@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import type { Session } from "@/lib/auth/dal";
-import { todayISO, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
+import { formatDateTime, priorityTarget, todayISO, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
 import { isCarriedForward as isCarriedForwardPure, taskFlags as taskFlagsPure } from "@/lib/scheduling";
 import { createClient } from "@/lib/supabase/server";
 
@@ -11,6 +11,7 @@ export type AssigneeSummary = {
   userId: string;
   isPrimary: boolean;
   assignedBy: string | null;
+  assignedAt: string;
   fullName: string | null;
   email: string | null;
   avatarUrl: string | null;
@@ -47,7 +48,7 @@ const TASK_SUMMARY_SELECT = `
   parent_task_id, project_id, created_by, updated_at, completed_at,
   project:projects!tasks_project_id_fkey(name, client_id, client_name, client:clients!projects_client_id_fkey(name)),
   assignees:task_assignees!task_assignees_task_id_fkey(
-    user_id, is_primary, assigned_by,
+    user_id, is_primary, assigned_by, assigned_at,
     profile:profiles!task_assignees_user_id_fkey(full_name, email, avatar_url)
   )
 ` as const;
@@ -72,6 +73,7 @@ type TaskSummaryRow = {
     user_id: string;
     is_primary: boolean;
     assigned_by: string | null;
+    assigned_at: string;
     profile: { full_name: string | null; email: string | null; avatar_url: string | null } | null;
   }[];
 };
@@ -103,6 +105,7 @@ function toSummary(row: TaskSummaryRow, counts?: Map<string, { total: number; do
         userId: a.user_id,
         isPrimary: a.is_primary,
         assignedBy: a.assigned_by,
+        assignedAt: a.assigned_at,
         fullName: a.profile?.full_name ?? null,
         email: a.profile?.email ?? null,
         avatarUrl: a.profile?.avatar_url ?? null,
@@ -146,6 +149,13 @@ export type TaskFilters = {
   search?: string;
   /** Tasks whose scheduled or due date falls in [from, to]. */
   dateRange?: { from: string; to: string };
+  /** Tasks assigned to any of these users (e.g. everyone in a department). */
+  assigneeIds?: string[];
+  startFrom?: string;
+  startTo?: string;
+  dueFrom?: string;
+  dueTo?: string;
+  sort?: "updated" | "due" | "start" | "priority";
 };
 
 /** Tasks visible to the caller (RLS-scoped), newest activity first. */
@@ -162,14 +172,28 @@ export async function listTasks(filters: TaskFilters): Promise<TaskSummary[]> {
     taskIds = data.map((r) => r.task_id);
     if (taskIds.length === 0) return [];
   }
+  if (filters.assigneeIds) {
+    if (filters.assigneeIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from("task_assignees")
+      .select("task_id")
+      .in("user_id", filters.assigneeIds);
+    if (error) throw new Error("Failed to load assignments");
+    const ids = new Set(data.map((r) => r.task_id));
+    taskIds = taskIds ? taskIds.filter((id) => ids.has(id)) : [...ids];
+    if (taskIds.length === 0) return [];
+  }
   if (filters.projectIds && filters.projectIds.length === 0) return [];
 
   let query = supabase
     .from("tasks")
     .select(TASK_SUMMARY_SELECT)
-    .eq("workspace_id", filters.workspaceId)
-    .order("updated_at", { ascending: false })
-    .limit(1000);
+    .eq("workspace_id", filters.workspaceId);
+  // priority_level enum is declared LOW, MEDIUM, HIGH, URGENT — descending = most urgent first.
+  if (filters.sort === "due") query = query.order("due_date", { ascending: true, nullsFirst: false });
+  else if (filters.sort === "start") query = query.order("start_date", { ascending: true, nullsFirst: false });
+  else if (filters.sort === "priority") query = query.order("priority", { ascending: false });
+  query = query.order("updated_at", { ascending: false }).limit(1000);
 
   if (taskIds) query = query.in("id", taskIds);
   if (filters.projectId) query = query.eq("project_id", filters.projectId);
@@ -184,6 +208,10 @@ export async function listTasks(filters: TaskFilters): Promise<TaskSummary[]> {
       `and(scheduled_date.gte.${from},scheduled_date.lte.${to}),and(due_date.gte.${from},due_date.lte.${to})`,
     );
   }
+  if (filters.startFrom) query = query.gte("start_date", filters.startFrom);
+  if (filters.startTo) query = query.lte("start_date", filters.startTo);
+  if (filters.dueFrom) query = query.gte("due_date", filters.dueFrom);
+  if (filters.dueTo) query = query.lte("due_date", filters.dueTo);
   if (filters.search?.trim()) {
     const term = filters.search.trim().slice(0, 100).replace(/[\\%_]/g, (ch) => `\\${ch}`);
     query = query.ilike("title", `%${term}%`);
@@ -372,6 +400,31 @@ export function isCarriedForward(t: Pick<TaskSummary, "scheduledDate" | "status"
   return isCarriedForwardPure(t, today);
 }
 
+/** When the task was first assigned (earliest task_assignees.assigned_at). */
+export function assignedAtOf(t: Pick<TaskSummary, "assignees">): string | null {
+  return t.assignees.reduce<string | null>((min, a) => (!min || a.assignedAt < min ? a.assignedAt : min), null);
+}
+
+/** Priority target for a task and whether it has passed (open tasks only). */
+export function priorityTargetInfo(t: Pick<TaskSummary, "assignees" | "priority" | "status">) {
+  const target = priorityTarget(assignedAtOf(t), t.priority);
+  const open = t.status !== "COMPLETED" && t.status !== "CANCELLED";
+  return { target, missed: Boolean(target) && open && target!.getTime() < Date.now() };
+}
+
 export function taskFlags(t: TaskSummary, today = todayISO()) {
-  return taskFlagsPure(t, today);
+  const flags = taskFlagsPure(t, today);
+  // Priority target (assignment time + P1 2h / P2 6h / P3 48h / P4 120h).
+  // Shown alongside — never instead of — the manually set due date.
+  if (t.status !== "COMPLETED" && t.status !== "CANCELLED") {
+    const target = priorityTarget(assignedAtOf(t), t.priority);
+    if (target) {
+      flags.push(
+        target.getTime() < Date.now()
+          ? { label: "Target missed", tone: "red" }
+          : { label: `Target ${formatDateTime(target.toISOString())}`, tone: "blue" },
+      );
+    }
+  }
+  return flags;
 }

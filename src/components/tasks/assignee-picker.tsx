@@ -6,7 +6,7 @@ import { UserAvatar } from "@/components/app/user-avatar";
 import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import { cn } from "@/lib/utils";
 
-export type MemberOption = { userId: string; name: string; role: UserRole; isActive: boolean };
+export type MemberOption = { userId: string; name: string; role: UserRole; isActive: boolean; team?: string | null };
 
 /** Multi-select of workspace members with a single primary assignee. */
 export function AssigneePicker({

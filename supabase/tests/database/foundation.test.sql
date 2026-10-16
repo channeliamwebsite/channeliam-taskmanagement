@@ -158,8 +158,9 @@ select is((select count(*)::int from public.tasks), 3, 'individual sees assigned
 select is((select count(*)::int from public.projects where not is_default), 1, 'individual sees project of assigned task');
 select is((select count(*)::int from public.projects where is_default), 1, 'individual sees the workspace General project');
 select throws_ok($$
-  insert into public.tasks (project_id, title) values ('bbbbbbbb-0000-0000-0000-000000000001', 'x')
-$$, '42501', null, 'individual cannot create tasks');
+  insert into public.tasks (project_id, parent_task_id, title)
+  values ('bbbbbbbb-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001', 'x')
+$$, '42501', null, 'individual cannot add subtasks under a task they did not create');
 select lives_ok($$
   update public.tasks set status = 'IN_PROGRESS', progress = 40 where id = 'cccccccc-0000-0000-0000-000000000001'
 $$, 'individual assignee updates status/progress');

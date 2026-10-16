@@ -114,12 +114,14 @@ export async function createTask(input: TaskInput): Promise<ActionResult<{ id: s
 
   const fields = validateFields(input);
   if (!fields.ok) return fields;
+  if (!fields.data.start_date || !fields.data.due_date) return fail("Start date and due date are required.");
+  // The day the work is planned for defaults to its start date.
+  fields.data.scheduled_date ??= fields.data.start_date;
 
   let assignees: { ids: string[]; primary: string | null };
   if (isIndividual) {
     const requested = (input.assigneeIds ?? []).filter(Boolean);
     if (requested.some((id) => id !== userId)) return fail("You can only create tasks assigned to yourself.");
-    if (fields.data.parent_task_id) return fail("Only admins can create subtasks.");
     assignees = { ids: [userId], primary: userId };
   } else {
     const parsed = validateAssignees(input.assigneeIds, input.primaryAssigneeId);
@@ -130,9 +132,14 @@ export async function createTask(input: TaskInput): Promise<ActionResult<{ id: s
 
   let projectId = input.projectId || null;
   if (projectId !== null && !isUuid(projectId)) return fail("Invalid project.");
+  if (isIndividual && fields.data.parent_task_id) {
+    const { data: parent } = await supabase.from("tasks").select("created_by").eq("id", fields.data.parent_task_id).maybeSingle();
+    if (parent?.created_by !== userId) return fail("You can only add subtasks to tasks you created.");
+  }
   if (isIndividual && projectId !== null) {
-    const { data: chosen } = await supabase.from("projects").select("is_default").eq("id", projectId).maybeSingle();
-    if (!chosen?.is_default) return fail("You can only add tasks to the General project.");
+    // Individuals may use the General project or any project they can already see (RLS-scoped read).
+    const { data: chosen } = await supabase.from("projects").select("id").eq("id", projectId).maybeSingle();
+    if (!chosen) return fail("You can't add tasks to that project.");
   }
   if (projectId === null) {
     if (!isUuid(input.workspaceId)) return fail("Choose a workspace.");
@@ -303,13 +310,16 @@ export async function getParentTaskOptions(projectId: string): Promise<ActionRes
   const actor = await getActor();
   if (!actor.ok) return actor;
   if (!isUuid(projectId)) return fail("Invalid project.");
-  const { data, error } = await actor.supabase
+  let query = actor.supabase
     .from("tasks")
     .select("id, title")
     .eq("project_id", projectId)
     .not("status", "in", "(COMPLETED,CANCELLED)")
     .order("title")
     .limit(500);
+  // Individuals may only nest under tasks they created themselves (RLS enforces this too).
+  if (actor.profile.role === "INDIVIDUAL") query = query.eq("created_by", actor.userId);
+  const { data, error } = await query;
   if (error) return fail(dbError(error));
   return ok(data);
 }

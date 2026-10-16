@@ -16,6 +16,8 @@ import { NoWorkspace, getPageContext } from "../_components/context";
 export const metadata: Metadata = { title: "Tasks" };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const SORTS = ["updated", "due", "start", "priority"] as const;
 
 export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const { session, workspace } = await getPageContext();
@@ -29,6 +31,12 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const assignee = get("assignee");
   const status = get("status");
   const priority = get("priority");
+  const department = get("dept");
+  const date = (k: string) => {
+    const v = get(k);
+    return v && ISO_DATE.test(v) ? v : undefined;
+  };
+  const sort = SORTS.find((s) => s === get("sort"));
   const view = get("view") === "board" ? "board" : "list";
   const userId = session.user.id;
   const today = workspaceToday(workspace);
@@ -44,6 +52,13 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         ? projects.filter((p) => p.clientId === client).map((p) => p.id)
         : undefined;
 
+  // Department = the assignee's team (profiles.team); "none" = people with no department.
+  const departmentIds = department
+    ? members
+        .filter((m) => (department === "none" ? !m.team?.trim() : m.team?.trim().toLowerCase() === department.toLowerCase()))
+        .map((m) => m.userId)
+    : undefined;
+
   const tasks = await listTasks({
     workspaceId: workspace.id,
     projectId: project && UUID.test(project) ? project : undefined,
@@ -53,15 +68,22 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     status: isTaskStatus(status) ? status : undefined,
     priority: isPriority(priority) ? priority : undefined,
     search: get("q"),
+    assigneeIds: departmentIds,
+    startFrom: date("startFrom"),
+    startTo: date("startTo"),
+    dueFrom: date("dueFrom"),
+    dueTo: date("dueTo"),
+    sort,
   });
 
   const rows = toTaskRows(tasks, session, today);
-  const canCreate = session.permissions.createTasks;
+  const canAssign = session.permissions.assignTasks;
   const memberOptions = members.map((m) => ({
     userId: m.userId,
     name: displayName({ full_name: m.fullName, email: m.email }),
     role: m.role,
     isActive: m.isActive,
+    team: m.team,
   }));
   const clients = [
     ...new Map(projects.filter((p) => p.clientId && p.clientName).map((p) => [p.clientId!, p.clientName!])).entries(),
@@ -75,7 +97,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
       <PageHeader
         title={title}
         description={`${rows.length} task${rows.length === 1 ? "" : "s"} in ${workspace.name}`}
-        actions={<NewTaskButton projects={projects} members={memberOptions} workspaceId={workspace.id} selfOnly={canCreate ? null : { userId }} />}
+        actions={<NewTaskButton projects={projects} members={memberOptions} workspaceId={workspace.id} selfOnly={canAssign ? null : { userId }} />}
       />
       <TaskFilters projects={projects} members={memberOptions} clients={clients} />
       {rows.length === 0 ? (
@@ -83,7 +105,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
           icon={CheckSquare}
           title={scope === "mine" ? "No tasks assigned to you" : "No tasks found"}
           description={
-            canCreate
+            canAssign
               ? projects.length
                 ? "Create a task or adjust the filters."
                 : "Create a project first, then add tasks to it."

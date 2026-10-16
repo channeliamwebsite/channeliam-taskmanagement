@@ -21,11 +21,16 @@ export type MeetingLinkView = {
   schedule: string | null;
   sortOrder: number;
   isActive: boolean;
+  kind: "MORNING" | "EVENING" | "OTHER";
+  startsAt: string | null;
+  meetingDate: string | null;
 };
 
-type FormValues = { title: string; url: string; team: string; schedule: string; sortOrder: string; isActive: boolean };
+type FormValues = { title: string; url: string; team: string; schedule: string; sortOrder: string; isActive: boolean; kind: MeetingLinkView["kind"]; startsAt: string; meetingDate: string };
 
-const EMPTY: FormValues = { title: "", url: "", team: "", schedule: "", sortOrder: "0", isActive: true };
+const EMPTY: FormValues = { title: "", url: "", team: "", schedule: "", sortOrder: "0", isActive: true, kind: "MORNING", startsAt: "", meetingDate: "" };
+
+const KIND_LABELS = { MORNING: "Morning meeting", EVENING: "Evening meeting", OTHER: "Other meeting" } as const;
 
 function MeetingForm({
   workspaceId,
@@ -42,7 +47,7 @@ function MeetingForm({
 }) {
   const [values, setValues] = useState<FormValues>(
     link
-      ? { title: link.title, url: link.url, team: link.team ?? "", schedule: link.schedule ?? "", sortOrder: String(link.sortOrder), isActive: link.isActive }
+      ? { title: link.title, url: link.url, team: link.team ?? "", schedule: link.schedule ?? "", sortOrder: String(link.sortOrder), isActive: link.isActive, kind: link.kind, startsAt: link.startsAt?.slice(0, 5) ?? "", meetingDate: link.meetingDate ?? "" }
       : EMPTY,
   );
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +64,9 @@ function MeetingForm({
       schedule: values.schedule || null,
       sortOrder: Number(values.sortOrder) || 0,
       isActive: values.isActive,
+      kind: values.kind,
+      startsAt: values.startsAt || null,
+      meetingDate: values.meetingDate || null,
     };
     startTransition(async () => {
       const r = link ? await updateMeetingLink(link.id, input) : await createMeetingLink(workspaceId, input);
@@ -104,6 +112,26 @@ function MeetingForm({
             <div className="grid gap-1.5">
               <Label htmlFor="meeting-schedule">When (optional)</Label>
               <Input id="meeting-schedule" placeholder="e.g. Daily 10:00 AM" value={values.schedule} onChange={(e) => set("schedule", e.target.value)} maxLength={200} className="h-9" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="meeting-kind">Type</Label>
+              <NativeSelect id="meeting-kind" value={values.kind} onChange={(e) => set("kind", e.target.value as FormValues["kind"])}>
+                {(Object.keys(KIND_LABELS) as FormValues["kind"][]).map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABELS[k]}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="meeting-time">Time (IST)</Label>
+              <Input id="meeting-time" type="time" value={values.startsAt} onChange={(e) => set("startsAt", e.target.value)} className="h-9" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="meeting-date">Date (empty = daily)</Label>
+              <Input id="meeting-date" type="date" value={values.meetingDate} onChange={(e) => set("meetingDate", e.target.value)} className="h-9" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -159,7 +187,7 @@ export function MeetingLinksManager({
                   {!l.isActive ? <span className="ml-1 text-xs text-muted-foreground">(inactive)</span> : null}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {l.team ? `${l.team} team` : "Everyone"}
+                  {KIND_LABELS[l.kind]} · {l.startsAt ? `${l.startsAt.slice(0, 5)} IST · ` : ""}{l.meetingDate ?? "daily"} · {l.team ? `${l.team} team` : "Everyone"}
                   {l.schedule ? ` · ${l.schedule}` : ""}
                 </p>
               </div>

@@ -35,8 +35,8 @@ describe("roles and permissions", () => {
     assert.equal(hasMinimumRole("INDIVIDUAL", "ADMIN"), false);
   });
 
-  it("grants task creation/assignment to admins and above only", () => {
-    assert.equal(getPermissions("INDIVIDUAL").createTasks, false);
+  it("lets everyone create tasks but only admins and above assign them", () => {
+    assert.equal(getPermissions("INDIVIDUAL").createTasks, true);
     assert.equal(getPermissions("INDIVIDUAL").assignTasks, false);
     assert.equal(getPermissions("ADMIN").assignTasks, true);
     assert.equal(getPermissions("SUPER_ADMIN").assignTasks, true);

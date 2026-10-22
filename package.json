@@ -12,8 +12,8 @@
     "db:start": "supabase start",
     "db:reset": "supabase db reset --local",
     "db:test": "supabase test db",
-    "db:types": "supabase gen types typescript --local --schema public > src/types/database.ts",
-    "db:types:remote": "supabase gen types typescript --linked --schema public > src/types/database.ts"
+    "db:types": "node scripts/gen-db-types.mjs --local",
+    "db:types:remote": "node scripts/gen-db-types.mjs --linked"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

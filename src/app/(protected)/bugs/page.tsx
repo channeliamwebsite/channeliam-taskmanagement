@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
+import { loadError } from "@/lib/data/errors";
 
 export const metadata: Metadata = { title: "Bug reports" };
 
@@ -42,7 +43,7 @@ export default async function BugsPage({ searchParams }: PageProps<"/bugs">) {
   if (status) query = query.eq("status", status);
   if (mineOnly) query = query.eq("reported_by", session.user.id);
   const { data, error } = await query;
-  if (error) throw new Error("Failed to load bug reports");
+  if (error) throw loadError("Failed to load bug reports", error);
 
   return (
     <>

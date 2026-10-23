@@ -2,7 +2,11 @@
 
 import { refresh } from "next/cache";
 
+import { requireSession } from "@/lib/auth/dal";
+import { getTask } from "@/lib/data/tasks";
 import { isPriority, isTaskStatus, isTaskType, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
+import { EDITABLE_TASK_FIELDS, TASK_FIELD_LABELS, planTaskEdit, type EditableTaskValues } from "@/lib/task-edit";
+import type { Database } from "@/types/database";
 
 import {
   NOT_PERMITTED,
@@ -174,7 +178,16 @@ export async function createTask(input: TaskInput): Promise<ActionResult<{ id: s
   refresh();
   return ok({ id: taskId });
 }
-export async function updateTask(taskId: string, input: Omit<TaskInput, "projectId" | "assigneeIds" | "primaryAssigneeId">): Promise<ActionResult> {
+type EditInput = Omit<TaskInput, "projectId" | "assigneeIds" | "primaryAssigneeId">;
+type TaskUpdate = Database["public"]["Tables"]["tasks"]["Update"];
+
+/**
+ * Saves the edit form. `base` is what the form showed when it opened: only
+ * fields the user changed are written, so newer changes made by someone else
+ * to other fields (e.g. the status) are kept. If someone else changed the same
+ * field to a different value, nothing is saved and a CONFLICT is returned.
+ */
+export async function updateTask(taskId: string, input: EditInput, base: EditInput): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;
   if (!isUuid(taskId)) return fail("Invalid task.");
@@ -182,11 +195,80 @@ export async function updateTask(taskId: string, input: Omit<TaskInput, "project
   const fields = validateFields(input);
   if (!fields.ok) return fields;
   if (fields.data.parent_task_id === taskId) return fail("A task cannot be its own parent.");
+  const original = validateFields(base);
+  if (!original.ok) return fail("Reload the task and try again.");
 
-  const update = { ...fields.data, ...(fields.data.status === "COMPLETED" ? { progress: 100 } : {}) };
-  const { data, error } = await actor.supabase.from("tasks").update(update).eq("id", taskId).select("id");
-  if (error) return fail(dbError(error, "Could not update the task."));
-  if (!data.length) return fail(NOT_PERMITTED);
+  // Read the current version, decide what to write, and write only if the row
+  // is still that version (updated_at is set by trigger on every update). One
+  // retry covers an unrelated change landing between the read and the write.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data: current, error: readError } = await actor.supabase
+      .from("tasks")
+      .select(`${EDITABLE_TASK_FIELDS.join(", ")}, updated_at`)
+      .eq("id", taskId)
+      .maybeSingle();
+    if (readError) return fail(dbError(readError, "Could not update the task."));
+    if (!current) return fail(NOT_PERMITTED);
+
+    const row = current as unknown as EditableTaskValues & { updated_at: string };
+    const { changes, conflicts } = planTaskEdit(original.data, fields.data, row);
+    if (conflicts.length) {
+      return {
+        ok: false,
+        code: "CONFLICT",
+        error: `Someone else changed the ${conflicts.map((f) => TASK_FIELD_LABELS[f]).join(", ")} of this task since you opened it. Reload the task to see the latest version, then make your change again.`,
+      };
+    }
+    if (Object.keys(changes).length === 0) return ok();
+
+    const update = { ...changes, ...(changes.status === "COMPLETED" ? { progress: 100 } : {}) };
+    const { data, error } = await actor.supabase
+      .from("tasks")
+      .update(update as TaskUpdate)
+      .eq("id", taskId)
+      .eq("updated_at", row.updated_at)
+      .select("id");
+    if (error) return fail(dbError(error, "Could not update the task."));
+    if (data.length) {
+      refresh();
+      return ok();
+    }
+    // No row updated: either the task changed after our read (retry) or it is
+    // no longer visible/editable (the next read returns nothing).
+  }
+  return {
+    ok: false,
+    code: "CONFLICT",
+    error: "This task is being changed by someone else right now. Reload the task and try again.",
+  };
+}
+
+/**
+ * Approves a task that is awaiting review (IN_REVIEW -> COMPLETED). Only
+ * someone who manages the task may approve it: super admins, and admins who
+ * created it, assigned it, own its project or are on it — the same rule as
+ * private.can_manage_task, which RLS still enforces on the update. The update
+ * only applies while the task is still IN_REVIEW.
+ */
+export async function approveTask(taskId: string): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (!isUuid(taskId)) return fail("Invalid task.");
+  if (actor.profile.role === "INDIVIDUAL") return fail(NOT_PERMITTED);
+
+  const task = await getTask(taskId, await requireSession());
+  if (!task || !task.permissions.canManage) return fail(NOT_PERMITTED);
+  if (task.status !== "IN_REVIEW") return fail("This task is no longer awaiting review.");
+
+  // Same transition as updateTaskStatus(…, "COMPLETED").
+  const { data, error } = await actor.supabase
+    .from("tasks")
+    .update({ status: "COMPLETED", progress: 100 })
+    .eq("id", taskId)
+    .eq("status", "IN_REVIEW")
+    .select("id");
+  if (error) return fail(dbError(error, "Could not approve the task."));
+  if (!data.length) return fail("This task changed before it could be approved. Reload and try again.");
 
   refresh();
   return ok();

@@ -66,18 +66,19 @@ $$, '23514', null, 'status must be a known value');
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims to '{"sub":"c3333333-3333-3333-3333-333333333333","role":"authenticated"}';
 select lives_ok($$
-  insert into public.daily_reports (user_id, workspace_id, report_date, morning_plan, morning_submitted_at)
-  values ('c3333333-3333-3333-3333-333333333333', 'd1000000-0000-0000-0000-000000000001', '2026-10-16', 'Finish homepage', now())
+  select public.submit_morning_plan('d1000000-0000-0000-0000-000000000001', 'Finish homepage')
 $$, 'employee submits a morning plan');
 select lives_ok($$
-  update public.daily_reports set accomplishments = 'Homepage done', evening_submitted_at = now()
-  where user_id = 'c3333333-3333-3333-3333-333333333333' and report_date = '2026-10-16'
+  select public.submit_evening_report('d1000000-0000-0000-0000-000000000001', 0, 'Homepage done')
 $$, 'same row is completed with the evening report');
 select is((select count(*)::int from public.daily_reports where user_id = 'c3333333-3333-3333-3333-333333333333'), 1,
           'morning plan and evening report share one row');
 set local request.jwt.claims to '{"sub":"c4444444-4444-4444-4444-444444444444","role":"authenticated"}';
-update public.daily_reports set morning_plan = 'tampered' where user_id = 'c3333333-3333-3333-3333-333333333333';
-select is((select count(*)::int from public.daily_reports), 0, 'colleagues cannot read another employee''s report');
+select lives_ok($$
+  select public.submit_morning_plan('d1000000-0000-0000-0000-000000000001', 'tampered')
+$$, 'a colleague''s submission only writes the colleague''s own report');
+select is((select count(*)::int from public.daily_reports where user_id = 'c3333333-3333-3333-3333-333333333333'), 0,
+          'colleagues cannot read another employee''s report');
 reset role;
 select is((select morning_plan from public.daily_reports where user_id = 'c3333333-3333-3333-3333-333333333333'), 'Finish homepage',
           'colleagues cannot modify another employee''s report');

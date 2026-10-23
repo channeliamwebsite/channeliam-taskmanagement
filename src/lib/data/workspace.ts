@@ -6,6 +6,7 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { UserRole } from "@/lib/auth/roles";
 import { BUSINESS_TIMEZONE, todayISO } from "@/lib/domain";
+import { loadError } from "./errors";
 
 export const WORKSPACE_COOKIE = "tm-workspace";
 
@@ -65,7 +66,7 @@ export const getWorkspaceMembers = cache(async (workspaceId: string): Promise<Me
       "user_id, can_create_projects, profile:profiles!workspace_members_user_id_fkey(full_name, email, avatar_url, role, department, job_title, is_active, manager_id, team)",
     )
     .eq("workspace_id", workspaceId);
-  if (error) throw new Error("Failed to load workspace members");
+  if (error) throw loadError("Failed to load workspace members", error);
 
   return data
     .filter((row) => row.profile)

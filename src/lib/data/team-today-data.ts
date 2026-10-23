@@ -4,10 +4,12 @@ import type { Session } from "@/lib/auth/dal";
 import { ROLE_LABELS } from "@/lib/auth/roles";
 import { displayName } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/server";
+import { uniqueById } from "@/lib/task-query";
 import { buildTeamToday, teamTotals } from "@/lib/team-today";
 
 import { listTasks, toTaskRows } from "./tasks";
 import { getWorkspaceMembers, workspaceToday, type Workspace } from "./workspace";
+import { loadError } from "./errors";
 
 /**
  * Employee-wise "today" for the dashboard and Team Today page. All data is
@@ -20,8 +22,13 @@ export async function loadTeamToday(session: Session, workspace: Workspace) {
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const supabase = await createClient();
 
-  const [tasks, members, reportsRes] = await Promise.all([
-    listTasks({ workspaceId: workspace.id }),
+  // Today's numbers only need open tasks and tasks completed today; the 48-hour
+  // window is a superset of "today" in any timezone (buildTeamToday applies the
+  // exact local-day check), so the rest of the history is not loaded.
+  const completedAfter = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const [openTasks, recentlyCompleted, members, reportsRes] = await Promise.all([
+    listTasks({ workspaceId: workspace.id, openOnly: true }),
+    listTasks({ workspaceId: workspace.id, status: "COMPLETED", completedAfter }),
     getWorkspaceMembers(workspace.id),
     supabase
       .from("daily_reports")
@@ -29,7 +36,8 @@ export async function loadTeamToday(session: Session, workspace: Workspace) {
       .eq("workspace_id", workspace.id)
       .eq("report_date", today),
   ]);
-  if (reportsRes.error) throw new Error("Failed to load daily reports");
+  if (reportsRes.error) throw loadError("Failed to load daily reports", reportsRes.error);
+  const tasks = uniqueById([...openTasks, ...recentlyCompleted]);
 
   const active = members.filter((m) => m.isActive);
   const visibleAssignees = new Set(tasks.flatMap((t) => t.assignees.map((a) => a.userId)));
@@ -42,16 +50,18 @@ export async function loadTeamToday(session: Session, workspace: Workspace) {
     reportsRes.data.map((r) => [r.user_id, { morning: Boolean(r.morning_submitted_at), evening: Boolean(r.evening_submitted_at) }]),
   );
 
+  const teamTasks = tasks.map((t) => ({
+    id: t.id,
+    status: t.status,
+    scheduledDate: t.scheduledDate,
+    dueDate: t.dueDate,
+    completedAt: t.completedAt,
+    assigneeIds: t.assignees.map((a) => a.userId),
+    hasSubtasks: t.subtaskTotal > 0,
+  }));
   const rows = buildTeamToday(
     employees.map((m) => ({ userId: m.userId, name: displayName({ full_name: m.fullName, email: m.email }) })),
-    tasks.map((t) => ({
-      id: t.id,
-      status: t.status,
-      scheduledDate: t.scheduledDate,
-      dueDate: t.dueDate,
-      completedAt: t.completedAt,
-      assigneeIds: t.assignees.map((a) => a.userId),
-    })),
+    teamTasks,
     reports,
     today,
     workspace.timezone,
@@ -67,5 +77,5 @@ export async function loadTeamToday(session: Session, workspace: Workspace) {
     rows.map((r) => [r.userId, toTaskRows(r.taskIds.map((id) => byId.get(id)!).filter(Boolean), session, today)]),
   );
 
-  return { today, rows, tasksByUser, totals: teamTotals(rows), members };
+  return { today, rows, tasksByUser, totals: teamTotals(rows, teamTasks, today, workspace.timezone), members };
 }

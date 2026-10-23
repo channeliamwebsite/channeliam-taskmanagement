@@ -191,8 +191,7 @@ select lives_ok($$
   update public.profiles set full_name = 'Indy One' where id = '44444444-4444-4444-4444-444444444444'
 $$, 'individual updates own name');
 select lives_ok($$
-  insert into public.daily_reports (workspace_id, report_date, tasks_in_progress, total_hours)
-  values ('aaaaaaaa-0000-0000-0000-000000000001', '2026-10-07', 1, 1.5)
+  select public.submit_evening_report('aaaaaaaa-0000-0000-0000-000000000001', 1.5)
 $$, 'individual submits daily report');
 select is((select count(*)::int from public.notifications), 1, 'individual sees only own notifications (assignment)');
 select throws_ok($$

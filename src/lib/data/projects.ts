@@ -2,6 +2,9 @@ import "server-only";
 
 import type { Priority, ProjectStatus, TaskStatus } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/server";
+import { countLeafTasks, percent } from "@/lib/progress";
+import { PAGE_SIZE, chunk, fetchAllPages } from "@/lib/task-query";
+import { loadError } from "./errors";
 
 export type ProjectSummary = {
   id: string;
@@ -45,18 +48,24 @@ async function taskCounts(projectIds: string[]) {
   const counts = new Map<string, { total: number; completed: number }>();
   if (projectIds.length === 0) return counts;
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("tasks")
-    .select("project_id, status")
-    .in("project_id", projectIds)
-    .neq("status", "CANCELLED")
-    .limit(5000);
-  if (error) throw new Error("Failed to load project progress");
-  for (const t of data as { project_id: string; status: TaskStatus }[]) {
-    const c = counts.get(t.project_id) ?? { total: 0, completed: 0 };
-    c.total += 1;
-    if (t.status === "COMPLETED") c.completed += 1;
-    counts.set(t.project_id, c);
+  // Every visible task is read (pages are walked by id instead of stopping at
+  // the API row limit); only leaf tasks are counted, so a parent and its
+  // subtasks are not counted twice.
+  const rows: { id: string; project_id: string; status: TaskStatus; parent_task_id: string | null }[] = [];
+  for (const ids of chunk(projectIds)) {
+    rows.push(
+      ...(await fetchAllPages((after) => {
+        let q = supabase.from("tasks").select("id, project_id, status, parent_task_id").in("project_id", ids).neq("status", "CANCELLED");
+        if (after) q = q.gt("id", after);
+        return q.order("id").limit(PAGE_SIZE);
+      }, "Failed to load project progress")),
+    );
+  }
+  for (const [projectId, c] of countLeafTasks(
+    rows.map((t) => ({ id: t.id, parentTaskId: t.parent_task_id, status: t.status, projectId: t.project_id })),
+    (t) => t.projectId,
+  )) {
+    counts.set(projectId, c);
   }
   return counts;
 }
@@ -78,7 +87,7 @@ function toSummary(row: ProjectRow, counts: Map<string, { total: number; complet
     createdBy: row.created_by,
     totalTasks: c.total,
     completedTasks: c.completed,
-    progress: c.total ? Math.round((c.completed / c.total) * 100) : 0,
+    progress: percent(c.completed, c.total),
   };
 }
 
@@ -89,7 +98,7 @@ export async function listProjects(workspaceId: string): Promise<ProjectSummary[
     .select(PROJECT_SELECT)
     .eq("workspace_id", workspaceId)
     .order("updated_at", { ascending: false });
-  if (error) throw new Error("Failed to load projects");
+  if (error) throw loadError("Failed to load projects", error);
   const rows = data as unknown as ProjectRow[];
   const counts = await taskCounts(rows.map((p) => p.id));
   return rows.map((row) => toSummary(row, counts));
@@ -102,7 +111,7 @@ export async function getProject(projectId: string): Promise<(ProjectSummary & {
     .select(`${PROJECT_SELECT}, workspace_id`)
     .eq("id", projectId)
     .maybeSingle();
-  if (error) throw new Error("Failed to load project");
+  if (error) throw loadError("Failed to load project", error);
   if (!data) return null;
   const row = data as unknown as ProjectRow & { workspace_id: string };
   const counts = await taskCounts([row.id]);
@@ -119,7 +128,7 @@ export async function listProjectOptions(workspaceId: string) {
     .neq("status", "ARCHIVED")
     .order("is_default", { ascending: false })
     .order("name");
-  if (error) throw new Error("Failed to load projects");
+  if (error) throw loadError("Failed to load projects", error);
   return data.map((p) => ({
     id: p.id,
     name: p.name,

@@ -109,21 +109,20 @@ set local role authenticated;
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims to '{"sub":"a3333333-3333-3333-3333-333333333333","role":"authenticated"}';
 select lives_ok($$
-  insert into public.daily_reports (user_id, workspace_id, report_date, accomplishments)
-  values ('a3333333-3333-3333-3333-333333333333', 'f1000000-0000-0000-0000-000000000001', '2026-10-12', 'Done')
+  select public.submit_evening_report('f1000000-0000-0000-0000-000000000001', 0, 'Done')
 $$, 'member submits own report');
 select throws_ok($$
   insert into public.daily_reports (user_id, workspace_id, report_date)
   values ('a2222222-2222-2222-2222-222222222222', 'f1000000-0000-0000-0000-000000000001', '2026-10-12')
-$$, '42501', null, 'cannot submit a report as someone else');
+$$, '42501', null, 'cannot write a report row directly (e.g. as someone else)');
 select throws_ok($$
-  insert into public.daily_reports (user_id, workspace_id, report_date)
-  values ('a3333333-3333-3333-3333-333333333333', 'f2000000-0000-0000-0000-000000000002', '2026-10-12')
+  select public.submit_evening_report('f2000000-0000-0000-0000-000000000002', 0, 'Done')
 $$, '42501', null, 'cannot submit a report into a workspace you are not in');
-select throws_ok($$
-  insert into public.daily_reports (user_id, workspace_id, report_date)
-  values ('a3333333-3333-3333-3333-333333333333', 'f1000000-0000-0000-0000-000000000001', '2026-10-12')
-$$, '23505', null, 'one report per user per workspace per day');
+select lives_ok($$
+  select public.submit_evening_report('f1000000-0000-0000-0000-000000000001', 0, 'Done again')
+$$, 'resubmitting the same day updates the report');
+select is((select count(*)::int from public.daily_reports where user_id = 'a3333333-3333-3333-3333-333333333333'), 1,
+          'one report per user per workspace per day');
 
 set local request.jwt.claims to '{"sub":"a4444444-4444-4444-4444-444444444444","role":"authenticated"}';
 select is((select count(*)::int from public.daily_reports), 0, 'super admin of another workspace cannot read W1 reports');

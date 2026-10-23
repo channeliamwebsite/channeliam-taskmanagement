@@ -11,6 +11,8 @@ export type TeamTask = {
   dueDate: string | null;
   completedAt: string | null;
   assigneeIds: string[];
+  /** True when the task has (non-cancelled) subtasks; such parents are left out of team totals. */
+  hasSubtasks?: boolean;
 };
 
 export type Employee = { userId: string; name: string };
@@ -69,18 +71,25 @@ export function buildTeamToday(
   });
 }
 
-export function teamTotals(rows: EmployeeDay[]) {
-  const sum = (k: keyof Pick<EmployeeDay, "planned" | "completedToday" | "pending" | "carriedForward" | "overdue" | "blocked">) =>
-    rows.reduce((n, r) => n + r[k], 0);
-  const planned = sum("planned");
-  const completed = sum("completedToday");
+/**
+ * Team summary: each task counted once (unlike the employee rows, which count
+ * a shared task for every assignee), and only leaf tasks — a parent with
+ * subtasks is represented by its subtasks. Uses the same day rules as the rows.
+ */
+export function teamTotals(rows: EmployeeDay[], tasks: TeamTask[], today: string, timeZone: string) {
+  const people = new Set(rows.map((r) => r.userId));
+  const team = tasks.filter((t) => !t.hasSubtasks && t.assigneeIds.some((id) => people.has(id)));
+  const open = team.filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED");
+  const pending = team.filter((t) => isInTodaysWorkload(t, today)).length;
+  const completed = team.filter((t) => t.status === "COMPLETED" && isCompletedOn(t.completedAt, today, timeZone)).length;
+  const planned = pending + completed;
   return {
     planned,
     completed,
-    pending: sum("pending"),
-    carriedForward: sum("carriedForward"),
-    overdue: sum("overdue"),
-    blocked: sum("blocked"),
+    pending,
+    carriedForward: open.filter((t) => isCarriedForward(t, today)).length,
+    overdue: open.filter((t) => isOverdue(t.dueDate, t.status, today)).length,
+    blocked: open.filter((t) => t.status === "BLOCKED").length,
     morningSubmitted: rows.filter((r) => r.morningSubmitted).length,
     eveningSubmitted: rows.filter((r) => r.eveningSubmitted).length,
     progress: planned ? Math.round((completed / planned) * 100) : 0,

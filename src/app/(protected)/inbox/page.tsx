@@ -6,6 +6,7 @@ import { InboxList } from "@/components/app/inbox-list";
 import { createClient } from "@/lib/supabase/server";
 
 import { getPageContext } from "../_components/context";
+import { loadError } from "@/lib/data/errors";
 
 export const metadata: Metadata = { title: "Inbox" };
 
@@ -18,7 +19,7 @@ export default async function InboxPage() {
     .eq("user_id", session.user.id)
     .order("created_at", { ascending: false })
     .limit(100);
-  if (error) throw new Error("Failed to load notifications");
+  if (error) throw loadError("Failed to load notifications", error);
 
   const unread = data.filter((n) => !n.is_read).length;
 

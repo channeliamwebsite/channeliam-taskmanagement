@@ -3,6 +3,7 @@ import "server-only";
 import type { ActivityAction } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/server";
 import type { Json } from "@/types/database";
+import { loadError } from "./errors";
 
 export type ActivityItem = {
   id: string;
@@ -64,6 +65,6 @@ export async function listActivity(opts: { workspaceId: string; taskId?: string;
   if (opts.taskId) query = query.eq("task_id", opts.taskId);
   if (opts.projectId) query = query.eq("project_id", opts.projectId);
   const { data, error } = await query;
-  if (error) throw new Error("Failed to load activity");
+  if (error) throw loadError("Failed to load activity", error);
   return (data as unknown as Row[]).map(toItem);
 }

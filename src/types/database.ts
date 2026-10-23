@@ -192,13 +192,17 @@ export type Database = {
           accomplishments: string | null
           blockers: string | null
           created_at: string
+          evening_snapshot: Json | null
           evening_submitted_at: string | null
           id: string
           linked_task_ids: string[]
+          morning_generated_at: string | null
           morning_plan: string | null
+          morning_snapshot: Json | null
           morning_submitted_at: string | null
           planned_task_ids: string[]
           report_date: string
+          reporter_team: string | null
           tasks_blocked: number
           tasks_completed: number
           tasks_in_progress: number
@@ -213,13 +217,17 @@ export type Database = {
           accomplishments?: string | null
           blockers?: string | null
           created_at?: string
+          evening_snapshot?: Json | null
           evening_submitted_at?: string | null
           id?: string
           linked_task_ids?: string[]
+          morning_generated_at?: string | null
           morning_plan?: string | null
+          morning_snapshot?: Json | null
           morning_submitted_at?: string | null
           planned_task_ids?: string[]
           report_date?: string
+          reporter_team?: string | null
           tasks_blocked?: number
           tasks_completed?: number
           tasks_in_progress?: number
@@ -234,13 +242,17 @@ export type Database = {
           accomplishments?: string | null
           blockers?: string | null
           created_at?: string
+          evening_snapshot?: Json | null
           evening_submitted_at?: string | null
           id?: string
           linked_task_ids?: string[]
+          morning_generated_at?: string | null
           morning_plan?: string | null
+          morning_snapshot?: Json | null
           morning_submitted_at?: string | null
           planned_task_ids?: string[]
           report_date?: string
+          reporter_team?: string | null
           tasks_blocked?: number
           tasks_completed?: number
           tasks_in_progress?: number
@@ -955,6 +967,26 @@ export type Database = {
         }
         Returns: string
       }
+      daily_tracking: {
+        Args: { p_workspace_id: string }
+        Returns: {
+          assigned_at: string | null
+          client_name: string | null
+          completed_at: string | null
+          due_date: string | null
+          evening_submitted_at: string | null
+          morning_generated_at: string | null
+          morning_status: string | null
+          priority: string | null
+          project_name: string | null
+          scheduled_date: string | null
+          status: string | null
+          task_id: string
+          title: string
+          tracking: string
+          user_id: string
+        }[]
+      }
       get_client_contacts: {
         Args: { p_workspace_id: string }
         Returns: {
@@ -966,6 +998,26 @@ export type Database = {
       set_task_assignees: {
         Args: { p_primary_id?: string; p_task_id: string; p_user_ids: string[] }
         Returns: undefined
+      }
+      submit_evening_report: {
+        Args: {
+          p_accomplishments?: string
+          p_blockers?: string
+          p_linked_task_ids?: string[]
+          p_tomorrow_plan?: string
+          p_total_hours?: number
+          p_work_remaining?: string
+          p_workspace_id: string
+        }
+        Returns: string
+      }
+      submit_morning_plan: {
+        Args: {
+          p_notes?: string
+          p_planned_task_ids?: string[]
+          p_workspace_id: string
+        }
+        Returns: string
       }
     }
     Enums: {

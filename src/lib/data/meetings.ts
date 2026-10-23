@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { loadError } from "./errors";
 
 export type MeetingLink = {
   id: string;
@@ -31,7 +32,7 @@ export async function listMeetingLinks(workspaceId: string, opts: { activeOnly?:
     .order("title");
   if (opts.activeOnly) query = query.eq("is_active", true);
   const { data, error } = await query;
-  if (error) throw new Error("Failed to load meeting links");
+  if (error) throw loadError("Failed to load meeting links", error);
   return data.map((m) => ({
     id: m.id,
     team: m.team,

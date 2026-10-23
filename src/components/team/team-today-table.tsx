@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, ChevronRight, Clock } from "lucide-react";
+import Link from "next/link";
 import { Fragment, useState } from "react";
 
 import { ProgressBar } from "@/components/app/badges";
@@ -157,6 +158,12 @@ export function TeamTodayTable({
                         ) : (
                           <p className="text-sm text-muted-foreground">No tasks for today.</p>
                         )}
+                        <Link
+                          href={`/tasks?scope=all&assignee=${r.userId}`}
+                          className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        >
+                          Open all of {r.name}&apos;s tasks →
+                        </Link>
                       </td>
                     </tr>
                   ) : null}

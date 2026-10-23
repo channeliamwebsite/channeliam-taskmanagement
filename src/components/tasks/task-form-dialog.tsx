@@ -118,6 +118,7 @@ export function TaskFormDialog(props: Props) {
   const [assignees, setAssignees] = useState<string[]>([]);
   const [primaryId, setPrimaryId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
 
   const clientMap = new Map<string, string>();
   for (const p of projects) if (p.clientId && p.clientName) clientMap.set(p.clientId, p.clientName);
@@ -150,11 +151,13 @@ export function TaskFormDialog(props: Props) {
     setAssignees([]);
     setPrimaryId(null);
     setError(null);
+    setConflict(false);
   }
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    setConflict(false);
     if (!values.title.trim()) return setError("Title is required.");
     if (isCreate && (!values.startDate || !values.dueDate)) return setError("Start date and due date are required.");
     if (values.startDate && values.dueDate && values.dueDate < values.startDate) {
@@ -185,19 +188,24 @@ export function TaskFormDialog(props: Props) {
         props.onOpenChange(false);
         reset();
       } else {
-        const result = await updateTask(props.taskId, {
-          title: values.title,
-          description: values.description,
-          status: values.status,
-          priority: values.priority,
-          taskType: values.taskType,
-          startDate: values.startDate || null,
-          scheduledDate: values.scheduledDate || null,
-          dueDate: values.dueDate || null,
-          estimatedHours: values.estimatedHours || null,
-          parentTaskId: values.parentTaskId || null,
+        const toInput = (v: TaskFormValues) => ({
+          title: v.title,
+          description: v.description,
+          status: v.status,
+          priority: v.priority,
+          taskType: v.taskType,
+          startDate: v.startDate || null,
+          scheduledDate: v.scheduledDate || null,
+          dueDate: v.dueDate || null,
+          estimatedHours: v.estimatedHours || null,
+          parentTaskId: v.parentTaskId || null,
         });
-        if (!result.ok) return setError(result.error);
+        // The values the form opened with let the server save only what was changed here.
+        const result = await updateTask(props.taskId, toInput(values), toInput(props.initial));
+        if (!result.ok) {
+          setConflict(result.code === "CONFLICT");
+          return setError(result.error);
+        }
         toast.success("Task updated");
         props.onOpenChange(false);
       }
@@ -287,9 +295,24 @@ export function TaskFormDialog(props: Props) {
 
         <form onSubmit={onSubmit} className="grid gap-3.5" noValidate>
           {error ? (
-            <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </p>
+            <div role="alert" className="grid gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <p>{error}</p>
+              {conflict ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => {
+                    // Close and refresh: reopening Edit loads the latest saved values.
+                    props.onOpenChange(false);
+                    router.refresh();
+                  }}
+                >
+                  Reload task
+                </Button>
+              ) : null}
+            </div>
           ) : null}
 
           <div className="grid gap-1.5">

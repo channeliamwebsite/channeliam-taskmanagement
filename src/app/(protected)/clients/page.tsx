@@ -7,6 +7,7 @@ import { EmptyState, PageHeader } from "@/components/app/page-header";
 import { ClientFormButton } from "@/components/clients/client-form-button";
 import { listClients } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
+import { combineProgress } from "@/lib/progress";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
 
@@ -44,6 +45,7 @@ export default async function ClientsPage() {
                       {[client.contactName, client.contactEmail].filter(Boolean).join(" · ")}
                     </p>
                   ) : null}
+                  {list.length ? <ClientProgress projects={list} /> : null}
                 </div>
                 {client && canEdit ? (
                   <ClientFormButton
@@ -83,5 +85,18 @@ export default async function ClientsPage() {
         </div>
       )}
     </>
+  );
+}
+
+/** Combined progress of a client's projects (leaf tasks across all of them). */
+function ClientProgress({ projects }: { projects: { totalTasks: number; completedTasks: number }[] }) {
+  const c = combineProgress(projects.map((p) => ({ total: p.totalTasks, completed: p.completedTasks })));
+  return (
+    <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+      <ProgressBar value={c.progress} className="w-28" />
+      <span className="tabular-nums">
+        {c.completed}/{c.total} tasks · {c.progress}%
+      </span>
+    </div>
   );
 }

@@ -5,7 +5,9 @@ import type { PostgrestError } from "@supabase/supabase-js";
 import { getCurrentProfile, getCurrentUser, type CurrentProfile } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 
-export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
+export type ActionResult<T = undefined> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; /** "CONFLICT": changed by someone else since it was loaded. */ code?: "CONFLICT" };
 
 export function ok<T>(data: T): ActionResult<T>;
 export function ok(): ActionResult<undefined>;

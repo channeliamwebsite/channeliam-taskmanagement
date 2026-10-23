@@ -30,7 +30,8 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
 
   const [members, tasks] = await Promise.all([
     getWorkspaceMembers(workspace.id),
-    listTasks({ workspaceId: workspace.id }),
+    // Open/overdue/blocked counts below only involve unfinished tasks.
+    listTasks({ workspaceId: workspace.id, openOnly: true }),
   ]);
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const me = session.user.id;

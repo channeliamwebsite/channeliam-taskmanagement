@@ -17,7 +17,14 @@ export type DaySummary = {
  *  - blocked: their tasks currently BLOCKED
  */
 export async function summarizeDay(workspaceId: string, userId: string, today: string, timeZone: string): Promise<DaySummary> {
-  const tasks = await listTasks({ workspaceId, assigneeId: userId });
+  // Only open tasks and tasks completed today are used below; a 48-hour window
+  // covers "today" in any timezone, so older history is not loaded.
+  const completedAfter = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const [openTasks, recentlyCompleted] = await Promise.all([
+    listTasks({ workspaceId, assigneeId: userId, openOnly: true }),
+    listTasks({ workspaceId, assigneeId: userId, status: "COMPLETED", completedAfter }),
+  ]);
+  const tasks = [...openTasks, ...recentlyCompleted];
   const open = (t: TaskSummary) => t.status !== "COMPLETED" && t.status !== "CANCELLED";
   return {
     completed: tasks.filter((t) => t.status === "COMPLETED" && isCompletedOn(t.completedAt, today, timeZone)),

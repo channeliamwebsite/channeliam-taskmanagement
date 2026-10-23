@@ -14,6 +14,7 @@ import { listProjects } from "@/lib/data/projects";
 import { listTasks } from "@/lib/data/tasks";
 import { getWorkspaceMembers, getMyWorkspaces } from "@/lib/data/workspace";
 import { addDaysISO, displayName, formatDate, isOverdue, todayISO } from "@/lib/domain";
+import { combineProgress, isLeafTask } from "@/lib/progress";
 
 import { getPageContext } from "../../_components/context";
 
@@ -46,9 +47,11 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
     .slice(0, 15);
 
   const open = tasks.filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED");
-  const countable = tasks.filter((t) => t.status !== "CANCELLED");
-  const done = countable.filter((t) => t.status === "COMPLETED").length;
-  const overdue = open.filter((t) => isOverdue(t.dueDate, t.status, today));
+  // Client totals use the same leaf-task rule as project progress (a parent is
+  // counted through its subtasks), combined across the client's projects.
+  const overall = combineProgress(projects.map((p) => ({ total: p.totalTasks, completed: p.completedTasks })));
+  const openWork = open.filter(isLeafTask);
+  const overdue = openWork.filter((t) => isOverdue(t.dueDate, t.status, today));
   const horizon = addDaysISO(today, 14);
   const upcoming = open
     .filter((t) => t.dueDate && t.dueDate >= today && t.dueDate <= horizon)
@@ -83,9 +86,13 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
 
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Projects" value={projects.length} icon={FolderKanban} />
-        <StatCard label="Open tasks" value={open.length} icon={ListTodo} tone="info" />
-        <StatCard label="Completed" value={`${done}/${countable.length}`} icon={CheckCircle2} tone="success" />
+        <StatCard label="Open tasks" value={openWork.length} icon={ListTodo} tone="info" />
+        <StatCard label="Completed" value={`${overall.completed}/${overall.total}`} icon={CheckCircle2} tone="success" />
         <StatCard label="Overdue" value={overdue.length} icon={AlertTriangle} tone={overdue.length ? "danger" : "default"} />
+      </div>
+      <div className="-mt-3 mb-6 flex items-center gap-3 text-xs text-muted-foreground">
+        <ProgressBar value={overall.progress} className="max-w-xs" />
+        <span className="tabular-nums">Overall {overall.progress}% · a parent task is counted through its subtasks</span>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">

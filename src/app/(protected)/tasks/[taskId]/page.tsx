@@ -15,6 +15,7 @@ import { TaskStatusSelect } from "@/components/tasks/task-status-select";
 import { listActivity } from "@/lib/data/activity";
 import { getParentCandidates, getTask, getTaskComments, toTaskRows, assignedAtOf, priorityTargetInfo } from "@/lib/data/tasks";
 import { getWorkspaceMembers } from "@/lib/data/workspace";
+import { hasDerivedProgress, taskProgress } from "@/lib/progress";
 import { TASK_TYPE_LABELS, displayName, formatDate, formatDateTime, isOverdue, todayISO, PRIORITY_LABELS, formatTargetHours } from "@/lib/domain";
 
 import { getPageContext } from "../../_components/context";
@@ -220,15 +221,27 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
               </div>
             </dl>
             <div className="mt-4 border-t pt-4">
-              {canUpdateStatus ? (
+              {hasDerivedProgress(task) ? (
+                // Parent tasks: progress follows their subtasks; no manual slider.
+                <div className="grid gap-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">Progress</span>
+                    <span className="text-muted-foreground">{taskProgress(task)}%</span>
+                  </div>
+                  <ProgressBar value={taskProgress(task)} />
+                  <p className="text-xs text-muted-foreground">
+                    From subtasks: {task.subtaskDone} of {task.subtaskTotal} completed
+                  </p>
+                </div>
+              ) : canUpdateStatus ? (
                 <ProgressControl key={task.progress} taskId={task.id} progress={task.progress} disabled={!canUpdateStatus} />
               ) : (
                 <div className="grid gap-2">
                   <div className="flex justify-between text-sm">
                     <span className="font-medium">Progress</span>
-                    <span className="text-muted-foreground">{task.progress}%</span>
+                    <span className="text-muted-foreground">{taskProgress(task)}%</span>
                   </div>
-                  <ProgressBar value={task.progress} />
+                  <ProgressBar value={taskProgress(task)} />
                 </div>
               )}
             </div>

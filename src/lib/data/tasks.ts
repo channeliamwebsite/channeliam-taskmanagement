@@ -6,6 +6,8 @@ import type { Session } from "@/lib/auth/dal";
 import { formatDateTime, priorityTarget, todayISO, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
 import { isCarriedForward as isCarriedForwardPure, taskFlags as taskFlagsPure } from "@/lib/scheduling";
 import { createClient } from "@/lib/supabase/server";
+import { PAGE_SIZE as PAGE_LIMIT, assigneeFilters, chunk, fetchAllPages, sortTaskRows, type TaskSort } from "@/lib/task-query";
+import { loadError } from "./errors";
 
 export type AssigneeSummary = {
   userId: string;
@@ -119,19 +121,21 @@ async function subtaskCounts(parentIds: string[]) {
   const counts = new Map<string, { total: number; done: number }>();
   if (parentIds.length === 0) return counts;
   const supabase = await createClient();
-  for (let i = 0; i < parentIds.length; i += 200) {
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("parent_task_id, status")
-      .in("parent_task_id", parentIds.slice(i, i + 200))
-      .neq("status", "CANCELLED");
-    if (error) throw new Error("Failed to load subtask progress");
-    for (const r of data) {
-      const c = counts.get(r.parent_task_id!) ?? { total: 0, done: 0 };
-      c.total += 1;
-      if (r.status === "COMPLETED") c.done += 1;
-      counts.set(r.parent_task_id!, c);
-    }
+  const load = (ids: string[]) =>
+    fetchAllPages((after) => {
+      let q = supabase.from("tasks").select("id, parent_task_id, status").in("parent_task_id", ids).neq("status", "CANCELLED");
+      if (after) q = q.gt("id", after);
+      return q.order("id").limit(PAGE_LIMIT);
+    }, "Failed to load subtask progress");
+  // A few chunks at a time: large lists need many chunks, but not all at once.
+  const results: { parent_task_id: string | null; status: TaskStatus }[][] = [];
+  const chunks = chunk(parentIds);
+  for (let i = 0; i < chunks.length; i += 4) results.push(...(await Promise.all(chunks.slice(i, i + 4).map(load))));
+  for (const r of results.flat()) {
+    const c = counts.get(r.parent_task_id!) ?? { total: 0, done: 0 };
+    c.total += 1;
+    if (r.status === "COMPLETED") c.done += 1;
+    counts.set(r.parent_task_id!, c);
   }
   return counts;
 }
@@ -155,73 +159,72 @@ export type TaskFilters = {
   startTo?: string;
   dueFrom?: string;
   dueTo?: string;
-  sort?: "updated" | "due" | "start" | "priority";
+  sort?: TaskSort;
+  /** Only tasks completed at or after this instant (ISO timestamp). */
+  completedAfter?: string;
 };
 
-/** Tasks visible to the caller (RLS-scoped), newest activity first. */
+/**
+ * Tasks visible to the caller (RLS-scoped), newest activity first unless
+ * `sort` says otherwise. Every matching row is returned: pages are walked by
+ * id, so nothing is silently cut off at the API's row limit.
+ */
 export async function listTasks(filters: TaskFilters): Promise<TaskSummary[]> {
+  if (filters.assigneeIds?.length === 0 || filters.projectIds?.length === 0) return [];
   const supabase = await createClient();
 
-  let taskIds: string[] | null = null;
-  if (filters.assigneeId) {
-    const { data, error } = await supabase
-      .from("task_assignees")
-      .select("task_id")
-      .eq("user_id", filters.assigneeId);
-    if (error) throw new Error("Failed to load assignments");
-    taskIds = data.map((r) => r.task_id);
-    if (taskIds.length === 0) return [];
-  }
-  if (filters.assigneeIds) {
-    if (filters.assigneeIds.length === 0) return [];
-    const { data, error } = await supabase
-      .from("task_assignees")
-      .select("task_id")
-      .in("user_id", filters.assigneeIds);
-    if (error) throw new Error("Failed to load assignments");
-    const ids = new Set(data.map((r) => r.task_id));
-    taskIds = taskIds ? taskIds.filter((id) => ids.has(id)) : [...ids];
-    if (taskIds.length === 0) return [];
-  }
-  if (filters.projectIds && filters.projectIds.length === 0) return [];
+  // Assignee filters run in the database as inner joins on task_assignees
+  // (still subject to its RLS), instead of shipping task-id lists in the URL.
+  const assignee = assigneeFilters(filters);
+  const select = [TASK_SUMMARY_SELECT, ...assignee.embeds].join(",");
 
-  let query = supabase
-    .from("tasks")
-    .select(TASK_SUMMARY_SELECT)
-    .eq("workspace_id", filters.workspaceId);
-  // priority_level enum is declared LOW, MEDIUM, HIGH, URGENT — descending = most urgent first.
-  if (filters.sort === "due") query = query.order("due_date", { ascending: true, nullsFirst: false });
-  else if (filters.sort === "start") query = query.order("start_date", { ascending: true, nullsFirst: false });
-  else if (filters.sort === "priority") query = query.order("priority", { ascending: false });
-  query = query.order("updated_at", { ascending: false }).limit(1000);
+  const rows = await fetchAllPages<TaskSummaryRow>((after) => {
+    let query = supabase.from("tasks").select(select).eq("workspace_id", filters.workspaceId);
+    for (const c of assignee.conditions) {
+      query = c.op === "eq" ? query.eq(c.column, c.value as string) : query.in(c.column, c.value as string[]);
+    }
+    if (filters.projectId) query = query.eq("project_id", filters.projectId);
+    if (filters.projectIds) query = query.in("project_id", filters.projectIds);
+    if (filters.createdBy) query = query.eq("created_by", filters.createdBy);
+    if (filters.status) query = query.eq("status", filters.status);
+    if (filters.priority) query = query.eq("priority", filters.priority);
+    if (filters.openOnly) query = query.not("status", "in", "(COMPLETED,CANCELLED)");
+    if (filters.completedAfter) query = query.gte("completed_at", filters.completedAfter);
+    if (filters.dateRange) {
+      const { from, to } = filters.dateRange;
+      query = query.or(
+        `and(scheduled_date.gte.${from},scheduled_date.lte.${to}),and(due_date.gte.${from},due_date.lte.${to})`,
+      );
+    }
+    if (filters.startFrom) query = query.gte("start_date", filters.startFrom);
+    if (filters.startTo) query = query.lte("start_date", filters.startTo);
+    if (filters.dueFrom) query = query.gte("due_date", filters.dueFrom);
+    if (filters.dueTo) query = query.lte("due_date", filters.dueTo);
+    if (filters.search?.trim()) {
+      const term = filters.search.trim().slice(0, 100).replace(/[\\%_]/g, (ch) => `\\${ch}`);
+      query = query.ilike("title", `%${term}%`);
+    }
+    if (after) query = query.gt("id", after);
+    return query.order("id").limit(PAGE_LIMIT) as unknown as PromiseLike<{ data: TaskSummaryRow[] | null; error: unknown }>;
+  }, "Failed to load tasks");
 
-  if (taskIds) query = query.in("id", taskIds);
-  if (filters.projectId) query = query.eq("project_id", filters.projectId);
-  if (filters.projectIds) query = query.in("project_id", filters.projectIds);
-  if (filters.createdBy) query = query.eq("created_by", filters.createdBy);
-  if (filters.status) query = query.eq("status", filters.status);
-  if (filters.priority) query = query.eq("priority", filters.priority);
-  if (filters.openOnly) query = query.not("status", "in", "(COMPLETED,CANCELLED)");
-  if (filters.dateRange) {
-    const { from, to } = filters.dateRange;
-    query = query.or(
-      `and(scheduled_date.gte.${from},scheduled_date.lte.${to}),and(due_date.gte.${from},due_date.lte.${to})`,
-    );
-  }
-  if (filters.startFrom) query = query.gte("start_date", filters.startFrom);
-  if (filters.startTo) query = query.lte("start_date", filters.startTo);
-  if (filters.dueFrom) query = query.gte("due_date", filters.dueFrom);
-  if (filters.dueTo) query = query.lte("due_date", filters.dueTo);
-  if (filters.search?.trim()) {
-    const term = filters.search.trim().slice(0, 100).replace(/[\\%_]/g, (ch) => `\\${ch}`);
-    query = query.ilike("title", `%${term}%`);
-  }
+  const sorted = sortTaskRows(rows, filters.sort);
+  const counts = await subtaskCounts(sorted.map((r) => r.id));
+  return sorted.map((r) => toSummary(r, counts));
+}
 
-  const { data, error } = await query;
-  if (error) throw new Error("Failed to load tasks");
-  const rows = data as unknown as TaskSummaryRow[];
-  const counts = await subtaskCounts(rows.map((r) => r.id));
-  return rows.map((r) => toSummary(r, counts));
+/** Titles of specific tasks the caller can see (missing or hidden ids are omitted). */
+export async function getTaskTitles(ids: string[]): Promise<Map<string, string>> {
+  const titles = new Map<string, string>();
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return titles;
+  const supabase = await createClient();
+  for (const part of chunk(unique)) {
+    const { data, error } = await supabase.from("tasks").select("id, title").in("id", part);
+    if (error) throw loadError("Failed to load task titles", error);
+    for (const t of data) titles.set(t.id, t.title);
+  }
+  return titles;
 }
 
 export type TaskDetail = TaskSummary & {
@@ -250,7 +253,7 @@ export const getTask = cache(async (taskId: string, session: Session): Promise<T
     .eq("id", taskId)
     .maybeSingle();
 
-  if (error) throw new Error("Failed to load task");
+  if (error) throw loadError("Failed to load task", error);
   if (!data) return null;
 
   const row = data as unknown as TaskSummaryRow & {
@@ -282,7 +285,7 @@ export const getTask = cache(async (taskId: string, session: Session): Promise<T
     .select(TASK_SUMMARY_SELECT)
     .eq("parent_task_id", taskId)
     .order("created_at");
-  if (childError) throw new Error("Failed to load subtasks");
+  if (childError) throw loadError("Failed to load subtasks", childError);
   const childRows = children as unknown as TaskSummaryRow[];
   const counts = await subtaskCounts([row.id, ...childRows.map((c) => c.id)]);
 
@@ -333,7 +336,7 @@ export async function getTaskComments(taskId: string): Promise<Comment[]> {
     .select("id, comment, created_at, updated_at, user_id, author:profiles!task_comments_user_id_fkey(full_name, email)")
     .eq("task_id", taskId)
     .order("created_at");
-  if (error) throw new Error("Failed to load comments");
+  if (error) throw loadError("Failed to load comments", error);
   return data.map((c) => ({
     id: c.id,
     comment: c.comment,
@@ -352,7 +355,7 @@ export async function getParentCandidates(projectId: string, excludeTaskId?: str
     .select("id, title, parent_task_id")
     .eq("project_id", projectId)
     .order("title");
-  if (error) throw new Error("Failed to load tasks");
+  if (error) throw loadError("Failed to load tasks", error);
   if (!excludeTaskId) return data.map(({ id, title }) => ({ id, title }));
 
   const excluded = new Set([excludeTaskId]);

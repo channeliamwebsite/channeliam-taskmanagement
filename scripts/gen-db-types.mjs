@@ -37,7 +37,8 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
-const types = result.stdout.replace(/^﻿/, "").replace(/\r\n/g, "\n");
+// The local generator prefixes a blank line; strip leading whitespace as well as any BOM.
+const types = result.stdout.replace(/^﻿/, "").replace(/\r\n/g, "\n").trimStart();
 // Refuse to overwrite the file with anything that is not the generated types.
 if (!types.startsWith("export type Json") || !types.includes("Tables: {")) {
   console.error(`Unexpected CLI output; ${path.relative(process.cwd(), out)} was not changed.`);

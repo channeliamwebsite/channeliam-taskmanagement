@@ -71,12 +71,28 @@ describe("buildTeamToday", () => {
     assert.equal(idle!.progress, 0);
   });
 
-  it("aggregates team totals", () => {
-    const totals = teamTotals([asha!, bala!]);
-    assert.equal(totals.planned, 7);
+  it("team totals count each task once, while employee rows count shared tasks per assignee", () => {
+    // Rows: Asha planned 5 + Bala planned 2 = 7, but t-shared is the same task.
+    assert.equal(asha!.planned + bala!.planned, 7);
+    const totals = teamTotals([asha!, bala!], tasks, today, tz);
+    assert.equal(totals.planned, 6);
+    assert.equal(totals.pending, 5);
     assert.equal(totals.completed, 1);
+    assert.equal(totals.blocked, 1);
+    assert.equal(totals.carriedForward, 1);
+    assert.equal(totals.overdue, 1);
     assert.equal(totals.morningSubmitted, 2);
     assert.equal(totals.eveningSubmitted, 1);
-    assert.equal(totals.progress, 14);
+    assert.equal(totals.progress, 17);
+  });
+
+  it("team totals leave out parent tasks that have subtasks", () => {
+    const withParent = [...tasks, task({ id: "t-parent", assigneeIds: ["u1"], hasSubtasks: true })];
+    assert.equal(teamTotals([asha!, bala!], withParent, today, tz).planned, 6);
+  });
+
+  it("team totals only include tasks of employees in the view", () => {
+    assert.equal(teamTotals([bala!], tasks, today, tz).planned, 2);
+    assert.equal(teamTotals([], tasks, today, tz).planned, 0);
   });
 });

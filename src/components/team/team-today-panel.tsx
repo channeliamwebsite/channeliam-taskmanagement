@@ -43,7 +43,7 @@ export function TeamTodayPanel({
         <StatCard label={`Evening reports (${rows.length})`} value={totals.eveningSubmitted} icon={Moon} />
       </div>
       <p className="mb-3 text-xs text-muted-foreground">
-        Team progress today: {totals.progress}% · counts are per assignee, so shared tasks count for each person.
+        Team progress today: {totals.progress}% · summary cards count each task once (a parent task is counted through its subtasks); employee rows count a shared task for every assignee.
       </p>
       <TeamTodayTable rows={rows} tasksByUser={tasksByUser} today={today} />
     </>

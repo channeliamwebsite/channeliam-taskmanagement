@@ -52,6 +52,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
     title: "My work",
     items: [
       { href: "/my-day", label: "My Day", icon: "myday" },
+      // Admins and super admins reach the dashboard from the Workspace section.
+      ...(role === "INDIVIDUAL" ? [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" } as NavItem] : []),
       { href: "/tasks", label: "My Tasks", icon: "tasks" },
       { href: "/calendar", label: "Calendar", icon: "calendar" },
       { href: "/inbox", label: "Inbox", icon: "inbox", badge: notifications.unread },

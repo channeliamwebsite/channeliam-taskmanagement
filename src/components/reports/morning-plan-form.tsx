@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { saveMorningPlan } from "@/lib/actions/reports";
 import { formatDateTime, type Priority } from "@/lib/domain";
+import { updatedAfterSubmission } from "@/lib/report-history";
 
 export type PlannedTask = {
   id: string;
@@ -25,11 +26,14 @@ export function MorningPlanForm({
   tasks,
   initialNotes,
   submittedAt,
+  updatedAt = null,
 }: {
   workspaceId: string;
   tasks: PlannedTask[];
   initialNotes: string;
   submittedAt: string | null;
+  /** daily_reports.updated_at: changes whenever the morning plan or evening report is saved. */
+  updatedAt?: string | null;
 }) {
   const [notes, setNotes] = useState(initialNotes);
   const [pending, startTransition] = useTransition();
@@ -82,7 +86,8 @@ export function MorningPlanForm({
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">
-          {submittedAt ? `Submitted ${formatDateTime(submittedAt)} IST` : "Not submitted yet"}
+          {submittedAt ? `First submitted ${formatDateTime(submittedAt)} IST` : "Not submitted yet"}
+          {submittedAt && updatedAt && updatedAfterSubmission(updatedAt, submittedAt) ? ` · last saved ${formatDateTime(updatedAt)} IST` : ""}
         </span>
         <Button type="submit" disabled={pending} className="h-9">
           {pending ? <Loader2 className="animate-spin" /> : null}

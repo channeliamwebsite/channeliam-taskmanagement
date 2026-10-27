@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { APP_TITLE, ORG_NAME } from "@/lib/brand";
 
 import "./globals.css";
 
@@ -16,10 +17,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Task Management",
-    template: "%s · Task Management",
+    default: APP_TITLE,
+    template: `%s · ${ORG_NAME}`,
   },
-  description: "Internal task management system",
+  description: `${ORG_NAME} internal task management`,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

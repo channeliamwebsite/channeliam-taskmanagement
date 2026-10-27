@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ORG_NAME, PRODUCT_NAME } from "@/lib/brand";
 
 import { LoginForm } from "./login-form";
 
@@ -24,13 +25,16 @@ export default function LoginPage() {
           <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <ListChecks className="size-5" aria-hidden="true" />
           </span>
-          <span className="text-lg font-semibold tracking-tight">Task Management</span>
+          <span className="grid leading-tight">
+            <span className="text-lg font-semibold tracking-tight">{ORG_NAME}</span>
+            <span className="text-xs text-muted-foreground">{PRODUCT_NAME}</span>
+          </span>
         </div>
 
         <Card className="shadow-sm">
           <CardHeader className="text-center">
             <CardTitle className="text-xl">Sign in</CardTitle>
-            <CardDescription>Enter your email and password to continue.</CardDescription>
+            <CardDescription>Use your {ORG_NAME} work email and password.</CardDescription>
           </CardHeader>
           <CardContent>
             {/* The form reads ?next= and ?error= from the URL, so it renders
@@ -42,7 +46,7 @@ export default function LoginPage() {
         </Card>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          Access is managed by your administrator.
+          Access is managed by your {ORG_NAME} administrator.
         </p>
       </div>
     </main>

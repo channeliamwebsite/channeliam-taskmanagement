@@ -24,6 +24,7 @@ import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ORG_NAME, PRODUCT_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 const ICONS = {
@@ -105,7 +106,10 @@ function Brand() {
       <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
         <ListChecks className="size-4" aria-hidden="true" />
       </span>
-      Task Management
+      <span className="grid leading-tight">
+        <span>{ORG_NAME}</span>
+        <span className="text-[11px] font-normal text-muted-foreground">{PRODUCT_NAME}</span>
+      </span>
     </Link>
   );
 }

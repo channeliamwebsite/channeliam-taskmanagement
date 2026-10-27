@@ -1,7 +1,14 @@
 import {
+  AlertTriangle,
   CalendarDays,
+  CheckCircle2,
   CheckSquare,
+  CircleDot,
+  ClipboardCheck,
+  Clock,
+  ListTodo,
   Sun,
+  Users,
 } from "lucide-react";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
@@ -10,10 +17,13 @@ import Link from "next/link";
 import { PriorityBadge, ProgressBar, StatusBadge } from "@/components/app/badges";
 import { MeetingLinksCard } from "@/components/app/meeting-links-card";
 import { PageHeader, Section } from "@/components/app/page-header";
+import { ProjectProgressTable } from "@/components/dashboard/project-progress-table";
 import {
   CompactTaskList,
   ProjectProgressList,
+  StatCard,
 } from "@/components/dashboard/widgets";
+import { MeetingRecordButton } from "@/components/meetings/meeting-record-button";
 import { ApproveTaskButton } from "@/components/tasks/approve-task-button";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { DailyTrackingPanel } from "@/components/team/daily-tracking-panel";
@@ -21,18 +31,19 @@ import { TeamTodayPanel } from "@/components/team/team-today-panel";
 import { buttonVariants } from "@/components/ui/button";
 import type { Session } from "@/lib/auth/dal";
 import { ROLE_LABELS } from "@/lib/auth/roles";
-import { listClients, type Client } from "@/lib/data/clients";
 import { loadDailyTracking } from "@/lib/data/daily-tracking-data";
 import { summarizeTracking } from "@/lib/daily-tracking";
 import { loadError } from "@/lib/data/errors";
-import { listMeetingLinks, meetingsForPerson } from "@/lib/data/meetings";
+import { listMeetingRecords } from "@/lib/data/meeting-records";
+import { listMeetingLinks, meetingsForPerson, type MeetingLink } from "@/lib/data/meetings";
 import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
 import { getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
 import { PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue } from "@/lib/domain";
-import { combineProgress, isLeafTask } from "@/lib/progress";
+import { isLeafTask } from "@/lib/progress";
 import { isCompletedOn, isInTodaysWorkload } from "@/lib/scheduling";
+import { employeeCounts, formatClock, meetingOccurrences, projectProgress, statusCounts, todaysWork } from "@/lib/super-admin-overview";
 import { createClient } from "@/lib/supabase/server";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -53,18 +64,20 @@ export default async function DashboardPage() {
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const isAdmin = session.profile.role === "ADMIN";
   const isIndividual = session.profile.role === "INDIVIDUAL";
-  const [tasks, projects, members, team, meetings, clients, projectOptions, myReport, tracking] = await Promise.all([
+  const today = workspaceToday(workspace);
+  const [tasks, projects, members, team, meetings, projectOptions, myReport, tracking, meetingRecords] = await Promise.all([
     listTasks({ workspaceId: workspace.id }),
     listProjects(workspace.id),
     getWorkspaceMembers(workspace.id),
     isAdmin ? loadTeamToday(session, workspace) : Promise.resolve(null),
     listMeetingLinks(workspace.id, { activeOnly: true }),
-    isSuperAdmin ? listClients(workspace.id) : Promise.resolve([] as Client[]),
     // Options for the existing New task dialog (admins only).
     isAdmin ? listProjectOptions(workspace.id) : Promise.resolve([]),
     isIndividual ? myReportToday(workspace.id, session.user.id, workspaceToday(workspace)) : Promise.resolve(null),
     // Automatic morning report vs. live tasks (migration 011), super admins only.
     isSuperAdmin ? loadDailyTracking(workspace.id, workspaceToday(workspace)) : Promise.resolve({ rows: [], reports: [] }),
+    // Meeting notes for this week (migration 013), super admins only.
+    isSuperAdmin ? listMeetingRecords(workspace.id, today, addDays(today, 6)) : Promise.resolve({ available: false, records: [] }),
   ]);
 
   const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
@@ -82,8 +95,8 @@ export default async function DashboardPage() {
         {...props}
         name={name}
         tracking={tracking}
-        clients={clients}
-        meetingCard={meetingCard}
+        meetings={meetings}
+        meetingRecords={meetingRecords}
       />
     );
   }
@@ -131,19 +144,29 @@ type Props = {
 type SuperAdminProps = Props & {
   name: string;
   tracking: Awaited<ReturnType<typeof loadDailyTracking>>;
-  clients: Client[];
-  meetingCard: ReactNode;
+  meetings: MeetingLink[];
+  meetingRecords: Awaited<ReturnType<typeof listMeetingRecords>>;
 };
 
+const MEETING_STATUS = {
+  SCHEDULED: { label: "Scheduled", tone: "bg-blue-50 text-blue-700" },
+  HELD: { label: "Held", tone: "bg-emerald-50 text-emerald-700" },
+  CANCELLED: { label: "Cancelled", tone: "bg-zinc-100 text-zinc-600" },
+  NOT_RECORDED: { label: "Not recorded", tone: "bg-amber-50 text-amber-800" },
+} as const;
+const MEETING_KIND = { MORNING: "Morning", EVENING: "Evening", OTHER: "Meeting" } as const;
+
 /**
- * Super admin: summary first (company totals, today's team progress), details
- * on demand (expandable employee rows, client and overdue lists, links out).
+ * Super admin: company-wide operations overview. Employees and tasks first,
+ * then client/project progress, today's reports and blockers, and meetings.
+ * Super admins review reports; they do not submit them.
  */
-function SuperAdminDashboard({ session, workspace, tasks, projects, members, today, name, tracking, clients, meetingCard }: SuperAdminProps) {
-  // Everyone active, plus anyone (e.g. deactivated today) who still has rows in today's report.
+function SuperAdminDashboard({ session, workspace, tasks, projects, members, today, name, tracking, meetings, meetingRecords }: SuperAdminProps) {
+  // Admins and Individuals who are active, plus anyone (e.g. deactivated today)
+  // who still has rows in today's report. Super admins review; they do not report.
   const reported = new Set(tracking.rows.map((r) => r.userId));
   const employees = members
-    .filter((m) => m.isActive || reported.has(m.userId))
+    .filter((m) => m.role !== "SUPER_ADMIN" && (m.isActive || reported.has(m.userId)))
     .map((m) => ({
       userId: m.userId,
       name: displayName({ full_name: m.fullName, email: m.email }),
@@ -153,23 +176,35 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
     }))
     .sort((a, b) => (a.team ?? "~").localeCompare(b.team ?? "~") || a.name.localeCompare(b.name));
   const summaries = summarizeTracking(employees.map((e) => e.userId), tracking.rows, tracking.reports);
+  const nameOf = new Map(employees.map((e) => [e.userId, e.name]));
 
-  // Company totals count each piece of work once: leaf tasks (a parent with
-  // subtasks is counted through them), cancelled tasks excluded.
+  // Company figures: each piece of work counted once (parents through their subtasks, cancelled excluded).
+  const counts = statusCounts(tasks, today);
+  const todays = todaysWork(tasks, today, workspace.timezone);
+  const people = employeeCounts(members);
+  const expected = employees.filter((e) => e.isActive);
+  const reportsBy = new Map(tracking.reports.map((r) => [r.userId, r]));
+  // A submitted morning plan, not the automatic 09:00 snapshot.
+  const noMorning = expected.filter((e) => !reportsBy.get(e.userId)?.morningSubmittedAt);
+  const noEvening = expected.filter((e) => !reportsBy.get(e.userId)?.eveningSubmittedAt);
+  const reportedBlockers = tracking.reports
+    .filter((r) => nameOf.has(r.userId) && r.eveningSubmittedAt && (r.blockers || r.workRemaining))
+    .map((r) => ({ userId: r.userId, name: nameOf.get(r.userId)!, blockers: r.blockers ?? null, workRemaining: r.workRemaining ?? null }));
+
   const work = tasks.filter((t) => isLeafTask(t) && t.status !== "CANCELLED");
-  const openWork = work.filter(isOpen);
-  const completed = work.length - openWork.length;
-  const overdue = openWork.filter((t) => isOverdue(t.dueDate, t.status, today)).sort(byDue);
-  const recent = tasks.slice(0, 6);
+  const overdue = work.filter((t) => isOverdue(t.dueDate, t.status, today)).sort(byDue);
+  const blocked = work.filter((t) => t.status === "BLOCKED").sort(byDue);
+  const projectRows = projectProgress(projects, tasks, today);
 
-  // Client progress: the same leaf counts as the Projects and Clients pages,
-  // combined per client from the projects already loaded.
-  const clientRows = [
-    ...clients.map((c) => ({ id: c.id, name: c.name, list: projects.filter((p) => p.clientId === c.id) })),
-    { id: null, name: "Internal / no client", list: projects.filter((p) => !p.clientId) },
-  ]
-    .filter((c) => c.list.length > 0)
-    .map((c) => ({ ...c, ...combineProgress(c.list.map((p) => ({ total: p.totalTasks, completed: p.completedTasks }))) }));
+  const week = Array.from({ length: 7 }, (_, i) => addDays(today, i));
+  const occurrences = meetingOccurrences(meetings, meetingRecords.records, week, today);
+  const recordOf = new Map(meetingRecords.records.map((r) => [`${r.meetingLinkId}:${r.meetingDate}`, r]));
+  const taskOptions = work
+    .filter((t) => isOpen(t))
+    .map((t) => ({ id: t.id, title: t.title }))
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .slice(0, 300);
+  const taskTitle = new Map(tasks.map((t) => [t.id, t.title]));
 
   const quickLink = buttonVariants({ variant: "outline", size: "sm", className: "h-8" });
   const textLink = "text-xs text-muted-foreground hover:text-foreground hover:underline";
@@ -178,14 +213,14 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
     <>
       <PageHeader
         title={`Welcome back, ${name}`}
-        description={`${ROLE_LABELS[session.profile.role]} · ${workspace.name}`}
+        description={`${ROLE_LABELS[session.profile.role]} · ${workspace.name} · company overview`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link href="/my-day" className={quickLink}>
-              <Sun aria-hidden="true" /> My Day
+            <Link href="/reports" className={quickLink}>
+              <ClipboardCheck aria-hidden="true" /> Daily reports
             </Link>
-            <Link href="/tasks" className={quickLink}>
-              <CheckSquare aria-hidden="true" /> My Tasks
+            <Link href="/team" className={quickLink}>
+              <Users aria-hidden="true" /> Employees
             </Link>
             <Link href="/calendar" className={quickLink}>
               <CalendarDays aria-hidden="true" /> Calendar
@@ -194,35 +229,34 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
         }
       />
 
-      {/* Company totals in one line; each figure opens the matching list. */}
-      <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border bg-card px-4 py-3 text-sm">
-        <span className="font-medium">Company</span>
-        <Link href="/tasks?scope=all" className="hover:underline">
-          <span className="font-semibold tabular-nums">{openWork.length}</span> open tasks
-        </Link>
-        <Link href="/tasks?scope=all&status=COMPLETED" className="hover:underline">
-          <span className="font-semibold tabular-nums">{completed}</span> completed
-        </Link>
-        <Link href="/projects" className="hover:underline">
-          <span className="font-semibold tabular-nums">{projects.length}</span> projects
-        </Link>
-        <Link href="/clients" className="hover:underline">
-          <span className="font-semibold tabular-nums">{clients.length}</span> clients
-        </Link>
-        <span className="text-xs text-muted-foreground sm:ml-auto">
-          Each task counted once; a parent task counts through its subtasks.
-        </span>
+      {/* 1. Company-wide employees and tasks. Each figure opens the matching list. */}
+      <div className="mb-2 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+        <StatCard label={`Employees · ${people.admins} Admin · ${people.individuals} Individual`} value={people.admins + people.individuals} icon={Users} href="/team?active=active" />
+        <StatCard label={`Today's tasks · ${todays.completedToday} done today`} value={todays.planned} icon={Sun} tone="info" href="/tasks?scope=all&sort=due" />
+        <StatCard label="In progress" value={counts.inProgress} icon={CircleDot} tone="info" href="/tasks?scope=all&status=IN_PROGRESS" />
+        <StatCard label="Pending (to do)" value={counts.pending} icon={ListTodo} href="/tasks?scope=all&status=TODO" />
+        <StatCard label="Blocked" value={counts.blocked} icon={AlertTriangle} tone={counts.blocked ? "danger" : "default"} href="/tasks?scope=all&status=BLOCKED" />
+        <StatCard label="Overdue" value={counts.overdue} icon={Clock} tone={counts.overdue ? "danger" : "default"} href="/tasks?scope=all&sort=due" />
+        <StatCard label={`Completed of ${counts.total}`} value={counts.completed} icon={CheckCircle2} tone="success" href="/tasks?scope=all&status=COMPLETED" />
+        <StatCard
+          label="Reports today · morning / evening"
+          value={`${expected.length - noMorning.length} / ${expected.length - noEvening.length} of ${expected.length}`}
+          icon={ClipboardCheck}
+          href="/reports"
+        />
       </div>
-
-      <div className="mb-6">{meetingCard}</div>
+      <p className="mb-6 text-xs text-muted-foreground">
+        Each task counted once (a parent task counts through its subtasks; cancelled tasks excluded). Reports count Admins and
+        Individuals; super admins do not report.
+      </p>
 
       <Section
-        title={`Today's daily report — automatic (${employees.length})`}
+        title={`Employees today — tasks and reports (${employees.length})`}
         className="mb-6"
         action={
           <span className="flex flex-wrap justify-end gap-x-3 gap-y-1">
             <Link href="/reports" className={textLink}>
-              Report history
+              Compare morning and evening reports
             </Link>
             <Link href="/team" className={textLink}>
               All employees
@@ -233,52 +267,160 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
         <DailyTrackingPanel employees={employees} summaries={summaries} />
       </Section>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Section
-          title="Client progress"
-          action={
+      {/* 2. Client and project progress. */}
+      <Section
+        title={`Client and project progress (${projectRows.length})`}
+        className="mb-6"
+        action={
+          <span className="flex flex-wrap justify-end gap-x-3 gap-y-1">
             <Link href="/clients" className={textLink}>
               All clients
             </Link>
+            <Link href="/projects" className={textLink}>
+              All projects
+            </Link>
+          </span>
+        }
+      >
+        <ProjectProgressTable rows={projectRows} today={today} />
+      </Section>
+
+      {/* 3 + 4. Reports, overdue work and blockers. */}
+      <div className="mb-6 grid gap-6 lg:grid-cols-3">
+        <Section
+          title="Reports not submitted today"
+          action={
+            <Link href="/reports?status=morning_missing" className={textLink}>
+              Open report comparison
+            </Link>
           }
         >
-          {clientRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No client projects yet. Add clients and projects to track progress here.</p>
-          ) : (
-            <ul className="grid gap-3">
-              {clientRows.slice(0, 8).map((c) => (
-                <li key={c.id ?? "internal"}>
-                  <Link href={c.id ? `/clients/${c.id}` : "/projects"} className="group grid gap-1.5">
-                    <span className="flex items-center justify-between gap-2 text-sm">
-                      <span className="truncate font-medium group-hover:underline">{c.name}</span>
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {c.completed}/{c.total} · {c.progress}%
-                      </span>
-                    </span>
-                    <ProgressBar value={c.progress} />
-                    <span className="text-xs text-muted-foreground">
-                      {c.list.length} project{c.list.length === 1 ? "" : "s"}
-                    </span>
+          <p className="text-xs font-medium text-muted-foreground">Morning plan ({noMorning.length})</p>
+          <p className="mb-3 text-sm">{noMorning.length ? noMorning.map((e) => e.name).join(", ") : "Everyone has submitted."}</p>
+          <p className="text-xs font-medium text-muted-foreground">Evening report ({noEvening.length})</p>
+          <p className="text-sm">{noEvening.length ? noEvening.map((e) => e.name).join(", ") : "Everyone has submitted."}</p>
+        </Section>
+        <Section title={`Overdue tasks (${overdue.length})`}>
+          <CompactTaskList tasks={overdue.slice(0, 6)} today={today} empty="Nothing overdue." showAssignee />
+          {overdue.length > 6 ? (
+            <Link href="/tasks?scope=all&sort=due" className={`${textLink} mt-3 inline-block`}>
+              View all overdue work
+            </Link>
+          ) : null}
+        </Section>
+        <Section title={`Blockers (${blocked.length} blocked task${blocked.length === 1 ? "" : "s"})`}>
+          <CompactTaskList tasks={blocked.slice(0, 5)} today={today} empty="No blocked tasks." showAssignee />
+          {reportedBlockers.length ? (
+            <ul className="mt-3 grid gap-2 border-t pt-3 text-sm">
+              {reportedBlockers.map((b) => (
+                <li key={b.userId}>
+                  <Link href={`/reports?employee=${b.userId}`} className="font-medium hover:underline">
+                    {b.name}
                   </Link>
+                  {b.blockers ? <p className="whitespace-pre-wrap break-words text-muted-foreground">Blocker: {b.blockers}</p> : null}
+                  {b.workRemaining ? <p className="whitespace-pre-wrap break-words text-muted-foreground">Delay: {b.workRemaining}</p> : null}
                 </li>
               ))}
             </ul>
+          ) : (
+            <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">No blockers or delays reported in today&apos;s evening reports.</p>
           )}
         </Section>
-        <div className="grid content-start gap-6">
-          <Section title={`Overdue tasks (${overdue.length})`}>
-            <CompactTaskList tasks={overdue.slice(0, 6)} today={today} empty="Nothing overdue." showAssignee />
-            {overdue.length > 6 ? (
-              <Link href="/tasks?scope=all&sort=due" className={`${textLink} mt-3 inline-block`}>
-                View all overdue work
-              </Link>
-            ) : null}
-          </Section>
-          <Section title="Recent task updates">
-            <CompactTaskList tasks={recent} today={today} empty="No tasks yet." showAssignee />
-          </Section>
-        </div>
       </div>
+
+      {/* 5. Morning and evening meetings (scheduled in Settings → Meeting links). */}
+      <Section
+        title="Meetings — next 7 days"
+        action={
+          <Link href="/settings" className={textLink}>
+            Schedule or edit meetings
+          </Link>
+        }
+      >
+        {!meetingRecords.available ? (
+          <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Meeting notes need database migration 013 (meeting records). Meetings are listed; notes can be recorded once it is applied.
+          </p>
+        ) : null}
+        {occurrences.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No meetings scheduled. Add morning and evening meetings in Settings.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[44rem] text-sm">
+              <thead className="border-b text-left text-xs text-muted-foreground">
+                <tr>
+                  <th className="py-2 pr-3 font-medium">When</th>
+                  <th className="px-3 py-2 font-medium">Meeting</th>
+                  <th className="px-3 py-2 font-medium">Participants</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">Follow-up</th>
+                  <th className="py-2 pl-3 text-right font-medium">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {occurrences.slice(0, 21).map((o) => {
+                  const record = recordOf.get(`${o.meeting.id}:${o.date}`) ?? null;
+                  const status = MEETING_STATUS[o.status];
+                  return (
+                    <tr key={`${o.meeting.id}:${o.date}`} className="align-top">
+                      <td className="py-2 pr-3 whitespace-nowrap">
+                        <span className="block">{o.date === today ? "Today" : formatDate(o.date)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {[formatClock(o.meeting.startsAt), o.recurring ? "daily" : "one-off"].filter(Boolean).join(" · ")}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="block font-medium">{o.meeting.title}</span>
+                        <span className="text-xs text-muted-foreground">{MEETING_KIND[o.meeting.kind]}</span>
+                        {record?.agenda ? <p className="line-clamp-2 text-xs text-muted-foreground">Agenda: {record.agenda}</p> : null}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">{o.meeting.team ?? "Everyone"}</td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded px-1.5 py-px text-[11px] font-medium ${status.tone}`}>{status.label}</span>
+                        {record?.decisions ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">Decisions: {record.decisions}</p> : null}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {record?.followUpTaskIds.length ? (
+                          <ul className="grid gap-0.5">
+                            {record.followUpTaskIds.map((id) => (
+                              <li key={id}>
+                                <Link href={`/tasks/${id}`} className="hover:underline">
+                                  {taskTitle.get(id) ?? "Task"}
+                                </Link>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 pl-3">
+                        <span className="flex justify-end gap-1.5">
+                          <a href={o.meeting.url} target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: "outline", size: "sm", className: "h-7 px-2 text-xs" })}>
+                            Join
+                          </a>
+                          {meetingRecords.available ? (
+                            <MeetingRecordButton
+                              workspaceId={workspace.id}
+                              meetingId={o.meeting.id}
+                              title={`${o.meeting.title} · ${MEETING_KIND[o.meeting.kind]}`}
+                              date={o.date}
+                              record={record}
+                              taskOptions={taskOptions}
+                            />
+                          ) : null}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
     </>
   );
 }

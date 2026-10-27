@@ -3,6 +3,8 @@
 
 export const LOGIN_ROUTE = "/login";
 export const DEFAULT_AUTHENTICATED_ROUTE = "/my-day";
+/** Where an accepted invitation lands (requires the session it creates). */
+export const SET_PASSWORD_ROUTE = "/auth/set-password";
 
 /** Routes reachable without a session. Everything else requires sign-in. */
 export const PUBLIC_ROUTES = [LOGIN_ROUTE] as const;
@@ -19,7 +21,7 @@ export const PROTECTED_ROUTES = [
 ] as const;
 
 /** Reachable both signed in and signed out (no redirect either way). */
-export const NEUTRAL_ROUTES = ["/auth/signout"] as const;
+export const NEUTRAL_ROUTES = ["/auth/signout", "/auth/confirm"] as const;
 
 function matches(pathname: string, route: string) {
   return pathname === route || pathname.startsWith(`${route}/`);

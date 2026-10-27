@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 
-import { LOGIN_ROUTE, safeRedirectPath } from "./routes";
-import { validateLogin, type LoginFieldErrors } from "./validation";
+import { DEFAULT_AUTHENTICATED_ROUTE, LOGIN_ROUTE, safeRedirectPath } from "./routes";
+import { validateLogin, validateNewPassword, type LoginFieldErrors } from "./validation";
 
 export type SignInState = {
   error?: string;
@@ -56,6 +56,32 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
   }
 
   redirect(next);
+}
+
+export type SetPasswordState = { error?: string };
+
+/** Sets the password for the signed-in user (after accepting an invitation). */
+export async function setPassword(_prev: SetPasswordState, formData: FormData): Promise<SetPasswordState> {
+  const password = String(formData.get("password") ?? "");
+  const error = validateNewPassword(password, String(formData.get("confirm") ?? ""));
+  if (error) return { error };
+
+  const supabase = await createClient();
+  const { data: claims } = await supabase.auth.getClaims();
+  const userId = claims?.claims?.sub;
+  if (!userId) return { error: "Your invitation link has expired. Ask your administrator for a new one." };
+
+  const { data: profile } = await supabase.from("profiles").select("is_active").eq("id", userId).maybeSingle();
+  if (!profile?.is_active) {
+    await supabase.auth.signOut();
+    return { error: "Your account has been deactivated. Contact an administrator." };
+  }
+
+  const { error: updateError } = await supabase.auth.updateUser({ password });
+  if (updateError) {
+    return { error: updateError.code === "same_password" ? "Choose a different password." : "Could not save the password. Please try again." };
+  }
+  redirect(DEFAULT_AUTHENTICATED_ROUTE);
 }
 
 export async function signOut(): Promise<never> {

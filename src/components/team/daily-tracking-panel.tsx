@@ -76,8 +76,8 @@ export function DailyTrackingPanel({
       </div>
       <p className="text-xs text-muted-foreground">
         {generated
-          ? "Morning reports are generated automatically from each person's tasks at 09:00; the counts below follow live task status. Counts are per person, so a shared task counts for each assignee."
-          : "Morning reports are generated automatically at 09:00 (Mon–Sat). Until then this shows each person's current tasks."}
+          ? "Task lists are snapshotted automatically at 09:00 (the auto snapshot is not the employee's morning plan); the counts follow live task status. Counts are per person, so a shared task counts for each assignee."
+          : "Task lists are snapshotted automatically at 09:00 (Mon–Sat). Until then this shows each person's current tasks."}
       </p>
       {inactiveWithWork.length ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -103,7 +103,7 @@ export function DailyTrackingPanel({
       </div>
 
       <div className="overflow-x-auto rounded-xl border bg-card">
-        <table className="w-full min-w-[52rem] text-sm">
+        <table className="w-full min-w-[58rem] text-sm">
           <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
             <tr>
               <th className="px-4 py-2 font-medium">Employee</th>
@@ -113,8 +113,9 @@ export function DailyTrackingPanel({
               <th className="px-2 py-2 text-right font-medium">In progress</th>
               <th className="px-2 py-2 text-right font-medium">Pending</th>
               <th className="w-32 px-3 py-2 font-medium">Progress</th>
-              <th className="px-3 py-2 font-medium">Morning report</th>
-              <th className="px-3 py-2 font-medium">Evening notes</th>
+              <th className="px-3 py-2 font-medium">Morning plan</th>
+              <th className="px-3 py-2 font-medium">Evening report</th>
+              <th className="px-3 py-2 font-medium">Auto snapshot</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -155,20 +156,19 @@ export function DailyTrackingPanel({
                         <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{s.progress}%</span>
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-muted-foreground">
-                      {s.morningGeneratedAt
-                        ? `Generated ${formatDateTime(s.morningGeneratedAt)}`
-                        : e.isActive
-                          ? "Not generated yet"
-                          : "None (inactive)"}
+                    <td className={cn("px-3 py-2.5 text-xs", s.morningSubmittedAt ? "text-emerald-700" : "font-medium text-amber-700")}>
+                      {s.morningSubmittedAt ? `Submitted ${formatDateTime(s.morningSubmittedAt)}` : "Not submitted"}
                     </td>
                     <td className={cn("px-3 py-2.5 text-xs", s.eveningSubmittedAt ? "text-emerald-700" : "text-muted-foreground")}>
-                      {s.eveningSubmittedAt ? "Submitted" : "Not yet"}
+                      {s.eveningSubmittedAt ? `Submitted ${formatDateTime(s.eveningSubmittedAt)}` : "Not yet"}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                      {s.morningGeneratedAt ? formatDateTime(s.morningGeneratedAt) : e.isActive ? "Not generated yet" : "None (inactive)"}
                     </td>
                   </tr>
                   {isOpen ? (
                     <tr>
-                      <td colSpan={9} className="bg-muted/20 px-4 py-3">
+                      <td colSpan={10} className="bg-muted/20 px-4 py-3">
                         {s.rows.length ? (
                           <ul className="divide-y rounded-lg border bg-card">
                             {s.rows.map((r) => {
@@ -206,7 +206,7 @@ export function DailyTrackingPanel({
             })}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                <td colSpan={10} className="px-4 py-6 text-center text-sm text-muted-foreground">
                   {onlyIncomplete ? "Everyone's work for today is complete." : "No employees match these filters."}
                 </td>
               </tr>

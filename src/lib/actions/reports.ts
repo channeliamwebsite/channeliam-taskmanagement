@@ -2,10 +2,13 @@
 
 import { refresh } from "next/cache";
 
+import { getPermissions } from "@/lib/auth/roles";
 import { summarizeDay } from "@/lib/data/daily-summary";
 import { BUSINESS_TIMEZONE, todayISO } from "@/lib/domain";
 
 import { cleanText, dbError, fail, getActor, isUuid, ok, type ActionResult } from "./shared";
+
+const MONITOR_ONLY = "Super admins review daily reports; they do not submit them.";
 
 export type DailyReportInput = {
   workspaceId: string;
@@ -26,6 +29,7 @@ export type DailyReportInput = {
 export async function saveDailyReport(input: DailyReportInput): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;
+  if (!getPermissions(actor.profile.role).submitDailyReports) return fail(MONITOR_ONLY);
   if (!isUuid(input.workspaceId)) return fail("Invalid workspace.");
 
   const { supabase, userId } = actor;
@@ -74,6 +78,7 @@ export async function saveDailyReport(input: DailyReportInput): Promise<ActionRe
 export async function saveMorningPlan(workspaceId: string, notes: string | null): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;
+  if (!getPermissions(actor.profile.role).submitDailyReports) return fail(MONITOR_ONLY);
   if (!isUuid(workspaceId)) return fail("Invalid workspace.");
 
   const { supabase, userId } = actor;

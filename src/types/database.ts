@@ -346,6 +346,73 @@ export type Database = {
           },
         ]
       }
+      meeting_records: {
+        Row: {
+          agenda: string | null
+          created_at: string
+          created_by: string | null
+          decisions: string | null
+          follow_up_task_ids: string[]
+          id: string
+          meeting_date: string
+          meeting_link_id: string
+          notes: string | null
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          agenda?: string | null
+          created_at?: string
+          created_by?: string | null
+          decisions?: string | null
+          follow_up_task_ids?: string[]
+          id?: string
+          meeting_date: string
+          meeting_link_id: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          agenda?: string | null
+          created_at?: string
+          created_by?: string | null
+          decisions?: string | null
+          follow_up_task_ids?: string[]
+          id?: string
+          meeting_date?: string
+          meeting_link_id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_records_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_records_meeting_link_id_fkey"
+            columns: ["meeting_link_id"]
+            isOneToOne: false
+            referencedRelation: "meeting_links"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_records_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           created_at: string

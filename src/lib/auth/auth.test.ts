@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { getPermissions, hasMinimumRole, hasRole, isRole, ROUTE_ROLES } from "./roles.ts";
 import { DEFAULT_AUTHENTICATED_ROUTE, isPublicRoute, requiresAuth, safeRedirectPath } from "./routes.ts";
-import { validateLogin } from "./validation.ts";
+import { validateLogin, validateNewPassword } from "./validation.ts";
 
 describe("route protection", () => {
   it("only /login is public; everything else requires a session (deny by default)", () => {
@@ -12,6 +12,14 @@ describe("route protection", () => {
       assert.equal(requiresAuth(path), true, path);
     }
     assert.equal(requiresAuth("/auth/signout"), false);
+    assert.equal(requiresAuth("/auth/confirm"), false, "invitation links work without a session");
+    assert.equal(requiresAuth("/auth/set-password"), true, "setting a password needs the invitation's session");
+  });
+
+  it("validates a new password", () => {
+    assert.match(validateNewPassword("short", "short") ?? "", /at least 8/);
+    assert.match(validateNewPassword("long enough", "different") ?? "", /do not match/);
+    assert.equal(validateNewPassword("long enough", "long enough"), null);
   });
 
   it("blocks open redirects in ?next=", () => {
@@ -40,6 +48,13 @@ describe("roles and permissions", () => {
     assert.equal(getPermissions("INDIVIDUAL").assignTasks, false);
     assert.equal(getPermissions("ADMIN").assignTasks, true);
     assert.equal(getPermissions("SUPER_ADMIN").assignTasks, true);
+  });
+
+  it("lets admins and individuals submit daily reports; super admins only review them", () => {
+    assert.equal(getPermissions("INDIVIDUAL").submitDailyReports, true);
+    assert.equal(getPermissions("ADMIN").submitDailyReports, true);
+    assert.equal(getPermissions("SUPER_ADMIN").submitDailyReports, false);
+    assert.equal(getPermissions("SUPER_ADMIN").viewTeamReports, true);
   });
 
   it("reserves user management and settings for super admins", () => {

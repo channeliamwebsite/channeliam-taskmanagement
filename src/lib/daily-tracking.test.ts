@@ -55,7 +55,7 @@ describe("summarizeTracking edge cases", () => {
     const [x] = summarizeTracking(["nobody"], []);
     assert.deepEqual({ ...x, rows: x!.rows.length }, {
       userId: "nobody", morning: 0, added: 0, completed: 0, inProgress: 0, pending: 0, movedOut: 0, progress: 0,
-      morningGeneratedAt: null, eveningSubmittedAt: null, rows: 0,
+      morningGeneratedAt: null, morningSubmittedAt: null, eveningSubmittedAt: null, rows: 0,
     });
   });
 

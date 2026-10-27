@@ -61,7 +61,8 @@ export function getPermissions(role: UserRole) {
     comment: true,
     uploadAttachments: true,
     trackTime: true,
-    submitDailyReports: true,
+    // Super admins monitor and compare reports; they do not submit their own.
+    submitDailyReports: !isSuperAdmin,
   } as const;
 }
 

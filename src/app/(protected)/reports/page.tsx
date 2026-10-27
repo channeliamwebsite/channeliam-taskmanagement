@@ -1,16 +1,19 @@
-import { FileText } from "lucide-react";
+import { CheckCircle2, ClipboardList, FileText, ListTodo, Moon, Sunrise } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { UserAvatar } from "@/components/app/user-avatar";
+import { StatCard } from "@/components/dashboard/widgets";
 import { DailyReportForm } from "@/components/reports/daily-report-form";
 import { MorningPlanForm } from "@/components/reports/morning-plan-form";
-import { ROLE_LABELS } from "@/lib/auth/roles";
+import { ReportComparison, type ComparisonRow } from "@/components/reports/report-comparison";
+import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import { summarizeDay } from "@/lib/data/daily-summary";
 import { getTaskTitles, isCarriedForward } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, formatDate, formatDateTime, isTaskStatus, PRIORITY_RANK, TASK_STATUS_LABELS } from "@/lib/domain";
+import { compareReport, hasSubmission, isExpectedReporter, summarizeComparisons } from "@/lib/report-compare";
 import { buildReportRoster, readEveningSnapshot, reportTaskLabel, updatedAfterSubmission } from "@/lib/report-history";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -19,6 +22,9 @@ import { NoWorkspace, getPageContext } from "../_components/context";
 import { loadError } from "@/lib/data/errors";
 
 export const metadata: Metadata = { title: "Daily Updates" };
+
+/** Roles that submit daily reports and can be filtered on (super admins only review). */
+const REPORTING_ROLES = { ADMIN: "Admin", INDIVIDUAL: "Individual" } as const;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -77,16 +83,24 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   const employee = UUID.test(get("employee")) ? get("employee") : "";
   const status = (get("status") in STATUSES ? get("status") : "") as keyof typeof STATUSES;
   const canViewTeam = session.permissions.viewTeamReports;
+  // Super admins monitor and compare reports; they do not submit their own.
+  const canSubmit = session.permissions.submitDailyReports;
+  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  const roleFilter = (get("role") in REPORTING_ROLES ? get("role") : "") as keyof typeof REPORTING_ROLES | "";
   const userId = session.user.id;
   const supabase = await createClient();
 
   const [mineRes, teamRes, day, members] = await Promise.all([
-    supabase.from("daily_reports").select(SELECT).eq("workspace_id", workspace.id).eq("user_id", userId)
-      .order("report_date", { ascending: false }).limit(10),
+    canSubmit
+      ? supabase.from("daily_reports").select(SELECT).eq("workspace_id", workspace.id).eq("user_id", userId)
+          .order("report_date", { ascending: false }).limit(10)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
     canViewTeam
       ? supabase.from("daily_reports").select(SELECT).eq("workspace_id", workspace.id).eq("report_date", date)
       : Promise.resolve({ data: [] as unknown[], error: null }),
-    summarizeDay(workspace.id, userId, today, workspace.timezone),
+    canSubmit
+      ? summarizeDay(workspace.id, userId, today, workspace.timezone)
+      : Promise.resolve({ completed: [], notCompleted: [], blocked: [] }),
     canViewTeam ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),
   ]);
   if (mineRes.error || teamRes.error) throw loadError("Failed to load reports", mineRes.error ?? teamRes.error);
@@ -127,7 +141,11 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   // Deactivated or removed employees stay listed for dates they reported on.
   const teamReports = teamRes.data as unknown as ReportRow[];
   const reportsBy = new Map(teamReports.map((r) => [r.user_id, r]));
-  const rosterEntries = buildReportRoster(members, reportsBy.keys(), {
+  // Deactivated / former members are listed when they have a report for the
+  // date. For the super admin that means an actual submission: rows created
+  // by the automatic morning snapshot alone do not count.
+  const rosterReportIds = isSuperAdmin ? teamReports.filter(hasSubmission).map((r) => r.user_id) : reportsBy.keys();
+  const rosterEntries = buildReportRoster(members, rosterReportIds, {
     userId,
     role: session.profile.role,
     team: session.profile.team,
@@ -148,14 +166,22 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         : "Former member";
     const team = e.member ? e.member.team : (former?.team ?? null);
     const badge = e.state === "inactive" ? "Inactive" : e.state === "removed" ? "Former member" : null;
-    const roleLabel = e.member ? ROLE_LABELS[e.member.role] : null;
-    return { userId: e.userId, name, team, badge, roleLabel };
-  });
+    const role: UserRole | null = e.member ? e.member.role : null;
+    const roleLabel = role ? ROLE_LABELS[role] : null;
+    return { userId: e.userId, name, team, badge, role, roleLabel, state: e.state };
+  })
+    // Super admins do not submit reports, so they are not listed for one another.
+    .filter((m) => !isSuperAdmin || m.role !== "SUPER_ADMIN");
   const departments = [...new Set(roster.map((m) => m.team).filter((t): t is string => Boolean(t)))].sort();
-  const rows = roster
+  // Date, department, employee and role define who is in scope (and the
+  // totals); the submission filter then only narrows the list shown.
+  const scopeRows = roster
     .filter((m) => !department || (department === "__none__" ? !m.team : m.team === department))
     .filter((m) => !employee || m.userId === employee)
+    .filter((m) => !roleFilter || m.role === roleFilter)
     .map((m) => ({ member: m, report: reportsBy.get(m.userId) ?? null }))
+    .sort((a, b) => (a.member.team ?? "~").localeCompare(b.member.team ?? "~") || a.member.name.localeCompare(b.member.name));
+  const rows = scopeRows
     .filter(({ report }) => {
       const am = Boolean(report?.morning_submitted_at);
       const pm = Boolean(report?.evening_submitted_at);
@@ -164,65 +190,112 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
       if (status === "complete") return am && pm;
       if (status === "none") return !am && !pm;
       return true;
-    })
-    .sort((a, b) => (a.member.team ?? "~").localeCompare(b.member.team ?? "~") || a.member.name.localeCompare(b.member.name));
+    });
   // A super admin can read every task in the workspace, so an unresolvable id means a deleted task.
   const taskLabel = (id: string) => reportTaskLabel(id, titleOf, session.profile.role === "SUPER_ADMIN");
   const morningCount = rows.filter((r) => r.report?.morning_submitted_at).length;
   const eveningCount = rows.filter((r) => r.report?.evening_submitted_at).length;
 
+  // Super admin: morning plan vs. evening report for every row, and totals over
+  // the people expected to report (active Admins and Individuals in the view;
+  // deactivated or former members appear only when they submitted).
+  const comparisonRows: (ComparisonRow & { expected: boolean })[] = isSuperAdmin
+    ? scopeRows.map(({ member: m, report: r }) => ({
+        userId: m.userId,
+        name: m.name,
+        roleLabel: m.roleLabel,
+        team: m.team,
+        badge: m.badge,
+        expected: isExpectedReporter(m.role, m.state),
+        comparison: compareReport(
+          r
+            ? {
+                morningSubmittedAt: r.morning_submitted_at,
+                eveningSubmittedAt: r.evening_submitted_at,
+                plannedTaskIds: r.planned_task_ids ?? [],
+                snapshot: readEveningSnapshot(r.evening_snapshot),
+              }
+            : null,
+          taskLabel,
+        ),
+        morningPlan: r?.morning_plan ?? null,
+        accomplishments: r?.accomplishments ?? null,
+        workRemaining: r?.work_remaining ?? null,
+        blockers: r?.blockers ?? null,
+        morningSubmittedAt: r?.morning_submitted_at ?? null,
+        eveningSubmittedAt: r?.evening_submitted_at ?? null,
+        // Counts stored with the report; shown for older reports without a task snapshot.
+        storedCounts: r?.evening_submitted_at
+          ? { completed: r.tasks_completed, notCompleted: r.tasks_in_progress, blocked: r.tasks_blocked }
+          : null,
+      }))
+    : [];
+  // Totals over everyone in scope, whatever the submission filter shows.
+  const summary = summarizeComparisons(comparisonRows);
+  const shownIds = new Set(rows.map((r) => r.member.userId));
+  const shownComparisons = comparisonRows.filter((r) => shownIds.has(r.userId));
+
   return (
     <>
-      <PageHeader title="Daily Updates" description="Morning plan and evening report. Task details come from your tasks." />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="grid min-w-0 content-start gap-6">
-          <Section title={`Morning plan · ${formatDate(today)}`}>
-            <MorningPlanForm
-              workspaceId={workspace.id}
-              tasks={planned}
-              initialNotes={todays?.morning_plan ?? ""}
-              submittedAt={todays?.morning_submitted_at ?? null}
-              updatedAt={todays?.updated_at ?? null}
-            />
-          </Section>
-          <Section title={`Evening report · ${formatDate(today)}`}>
-            <DailyReportForm
-              workspaceId={workspace.id}
-              initial={initial}
-              isUpdate={Boolean(todays?.evening_submitted_at)}
-              completed={ref(day.completed)}
-              notCompleted={ref(day.notCompleted)}
-              blocked={ref(day.blocked)}
-            />
+      {canSubmit ? (
+        <PageHeader title="Daily Updates" description="Morning plan and evening report. Task details come from your tasks." />
+      ) : (
+        <PageHeader
+          title="Daily Updates"
+          description="Review and compare the morning plans and evening reports of Admins and Individuals. Super admins do not submit reports."
+        />
+      )}
+      {canSubmit ? (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="grid min-w-0 content-start gap-6">
+            <Section title={`Morning plan · ${formatDate(today)}`}>
+              <MorningPlanForm
+                workspaceId={workspace.id}
+                tasks={planned}
+                initialNotes={todays?.morning_plan ?? ""}
+                submittedAt={todays?.morning_submitted_at ?? null}
+                updatedAt={todays?.updated_at ?? null}
+              />
+            </Section>
+            <Section title={`Evening report · ${formatDate(today)}`}>
+              <DailyReportForm
+                workspaceId={workspace.id}
+                initial={initial}
+                isUpdate={Boolean(todays?.evening_submitted_at)}
+                completed={ref(day.completed)}
+                notCompleted={ref(day.notCompleted)}
+                blocked={ref(day.blocked)}
+              />
+            </Section>
+          </div>
+          <Section title="Your recent reports">
+            {mine.length === 0 ? (
+              <p className="text-sm text-muted-foreground">You haven&apos;t submitted a report yet.</p>
+            ) : (
+              <ul className="-my-2 divide-y">
+                {mine.map((r) => (
+                  <li key={r.id} className="py-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="font-medium">{formatDate(r.report_date)}</span>
+                      <span className="text-muted-foreground">{hours(Number(r.total_hours))}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Morning {r.morning_submitted_at ? "✓" : "—"} · Evening {r.evening_submitted_at ? "✓" : "—"} ·{" "}
+                      {r.tasks_completed} done · {r.tasks_in_progress} not completed
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
         </div>
-        <Section title="Your recent reports">
-          {mine.length === 0 ? (
-            <p className="text-sm text-muted-foreground">You haven&apos;t submitted a report yet.</p>
-          ) : (
-            <ul className="-my-2 divide-y">
-              {mine.map((r) => (
-                <li key={r.id} className="py-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="font-medium">{formatDate(r.report_date)}</span>
-                    <span className="text-muted-foreground">{hours(Number(r.total_hours))}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Morning {r.morning_submitted_at ? "✓" : "—"} · Evening {r.evening_submitted_at ? "✓" : "—"} ·{" "}
-                    {r.tasks_completed} done · {r.tasks_in_progress} not completed
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-      </div>
+      ) : null}
 
       {canViewTeam ? (
-        <div className="mt-6 grid gap-4">
+        <div className={cn("grid gap-4", canSubmit && "mt-6")}>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">{session.profile.role === "SUPER_ADMIN" ? "Organisation updates" : "Team updates"}</h2>
+              <h2 className="text-lg font-semibold">{isSuperAdmin ? "Organisation updates" : "Team updates"}</h2>
               <p className="text-sm text-muted-foreground">
                 {formatDate(date)} · {rows.length} employee{rows.length === 1 ? "" : "s"} · morning plans {morningCount} · evening reports {eveningCount}
               </p>
@@ -256,6 +329,17 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                 </select>
               </label>
               <label className="grid gap-1 text-xs text-muted-foreground">
+                Role
+                <select name="role" defaultValue={roleFilter} className={selectClass}>
+                  <option value="">All roles</option>
+                  {Object.entries(REPORTING_ROLES).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs text-muted-foreground">
                 Submission
                 <select name="status" defaultValue={status} className={selectClass}>
                   {Object.entries(STATUSES).map(([value, label]) => (
@@ -274,8 +358,31 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
             </form>
           </div>
 
+          {isSuperAdmin ? (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatCard label="Morning plans submitted / expected" value={`${summary.morningSubmitted} / ${summary.expected}`} icon={Sunrise} tone="info" />
+              <StatCard label="Evening reports submitted / expected" value={`${summary.eveningSubmitted} / ${summary.expected}`} icon={Moon} tone="info" />
+              <StatCard
+                label="Planned tasks completed (both reports in)"
+                value={`${summary.plannedCompleted} / ${summary.plannedTasks}`}
+                icon={CheckCircle2}
+                tone="success"
+              />
+              <StatCard label="Open tasks in evening reports" value={summary.pendingTasks} icon={ListTodo} tone={summary.pendingTasks ? "danger" : "default"} />
+            </div>
+          ) : null}
+
           {rows.length === 0 ? (
             <EmptyState icon={FileText} title="No employees match these filters" />
+          ) : isSuperAdmin ? (
+            <>
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ClipboardList className="size-3.5" aria-hidden="true" />
+                Planned tasks show their status at evening submission (✓ completed). Totals count active Admins and Individuals
+                in this view; a task&apos;s status is only known once the evening report is submitted.
+              </p>
+              <ReportComparison rows={shownComparisons} />
+            </>
           ) : (
             <ul className="grid gap-3 md:grid-cols-2">
               {rows.map(({ member: m, report: r }) => {

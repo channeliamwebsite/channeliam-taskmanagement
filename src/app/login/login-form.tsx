@@ -14,6 +14,7 @@ import { validateLogin, type LoginFieldErrors } from "@/lib/auth/validation";
 const URL_ERRORS: Record<string, string> = {
   account_inactive: "Your account has been deactivated. Contact an administrator.",
   profile_missing: "Your account is not set up yet. Contact an administrator.",
+  link_invalid: "That invitation link is invalid or has expired. Ask your administrator for a new one.",
 };
 
 export function LoginForm() {

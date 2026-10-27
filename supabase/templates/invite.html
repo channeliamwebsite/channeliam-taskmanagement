@@ -1,0 +1,12 @@
+<!--
+  Supabase Auth "Invite user" email. In production, paste this into
+  Authentication -> Email Templates -> Invite user (and set Site URL to the app URL).
+  The link goes to the app's /auth/confirm route, which verifies the one-time
+  token on the server and then asks the employee to choose a password.
+-->
+<h2>You're invited to Channeliam Task Management</h2>
+<p>An administrator has created an account for you.</p>
+<p>
+  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite">Accept the invitation and set your password</a>
+</p>
+<p>This link can be used once. If it has expired, ask your administrator to send a new invitation.</p>

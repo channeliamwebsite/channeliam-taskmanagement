@@ -32,7 +32,7 @@ export async function loadDailyTracking(
     // (RLS applies; at most one row per member).
     supabase
       .from("daily_reports")
-      .select("user_id, morning_generated_at, evening_submitted_at")
+      .select("user_id, morning_generated_at, morning_submitted_at, evening_submitted_at, blockers, work_remaining")
       .eq("workspace_id", workspaceId)
       .eq("report_date", today),
   ]);
@@ -41,7 +41,10 @@ export async function loadDailyTracking(
     reports: reports.data.map((r) => ({
       userId: r.user_id,
       morningGeneratedAt: r.morning_generated_at,
+      morningSubmittedAt: r.morning_submitted_at,
       eveningSubmittedAt: r.evening_submitted_at,
+      blockers: r.blockers,
+      workRemaining: r.work_remaining,
     })),
     rows: tracking.map((r) => ({
     userId: r.user_id,

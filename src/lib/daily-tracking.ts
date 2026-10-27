@@ -44,7 +44,12 @@ export type TrackingRow = {
 export type ReportTimes = {
   userId: string;
   morningGeneratedAt: string | null;
+  /** The employee's own morning plan (not the automatic snapshot). */
+  morningSubmittedAt?: string | null;
   eveningSubmittedAt: string | null;
+  /** From the evening report. */
+  blockers?: string | null;
+  workRemaining?: string | null;
 };
 
 export type EmployeeTracking = {
@@ -62,6 +67,8 @@ export type EmployeeTracking = {
   /** completed / today's tasks, 0-100. */
   progress: number;
   morningGeneratedAt: string | null;
+  /** The employee submitted a morning plan (an automatic snapshot is not a submission). */
+  morningSubmittedAt: string | null;
   eveningSubmittedAt: string | null;
   rows: TrackingRow[];
 };
@@ -94,6 +101,7 @@ export function summarizeTracking(
       movedOut: mine.length - today.length,
       progress: today.length ? Math.round((completed / today.length) * 100) : 0,
       morningGeneratedAt: report?.morningGeneratedAt ?? mine.find((r) => r.morningGeneratedAt)?.morningGeneratedAt ?? null,
+      morningSubmittedAt: report?.morningSubmittedAt ?? null,
       eveningSubmittedAt: report?.eveningSubmittedAt ?? mine.find((r) => r.eveningSubmittedAt)?.eveningSubmittedAt ?? null,
       rows: [...mine].sort(
         (a, b) => Number(isTodaysWork(b)) - Number(isTodaysWork(a)) || a.title.localeCompare(b.title),

@@ -249,6 +249,7 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
 
           <Section title="Assignees">
             <AssigneesPanel
+              taskTitle={task.title}
               taskId={task.id}
               members={memberOptions}
               canAssign={canAssign}

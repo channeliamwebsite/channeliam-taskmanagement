@@ -104,18 +104,18 @@ export async function listProjects(workspaceId: string): Promise<ProjectSummary[
   return rows.map((row) => toSummary(row, counts));
 }
 
-export async function getProject(projectId: string): Promise<(ProjectSummary & { workspaceId: string }) | null> {
+export async function getProject(projectId: string): Promise<(ProjectSummary & { workspaceId: string; isDefault: boolean }) | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
-    .select(`${PROJECT_SELECT}, workspace_id`)
+    .select(`${PROJECT_SELECT}, workspace_id, is_default`)
     .eq("id", projectId)
     .maybeSingle();
   if (error) throw loadError("Failed to load project", error);
   if (!data) return null;
-  const row = data as unknown as ProjectRow & { workspace_id: string };
+  const row = data as unknown as ProjectRow & { workspace_id: string; is_default: boolean };
   const counts = await taskCounts([row.id]);
-  return { ...toSummary(row, counts), workspaceId: row.workspace_id };
+  return { ...toSummary(row, counts), workspaceId: row.workspace_id, isDefault: row.is_default };
 }
 
 /** Lightweight list for pickers (with client, for Client → Project selection). */

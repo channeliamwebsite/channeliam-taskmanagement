@@ -5,12 +5,13 @@ import { useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { useDeletionImpact } from "@/components/app/deletion-impact";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import { createMeetingLink, deleteMeetingLink, updateMeetingLink } from "@/lib/actions/meetings";
+import { createMeetingLink, deleteMeetingLink, getMeetingLinkDeletionImpact, updateMeetingLink } from "@/lib/actions/meetings";
 import { TEAM_OPTIONS } from "@/lib/domain";
 
 export type MeetingLinkView = {
@@ -171,6 +172,10 @@ export function MeetingLinksManager({
   const [editing, setEditing] = useState<MeetingLinkView | null | "new">(null);
   const [deleting, setDeleting] = useState<MeetingLinkView | null>(null);
   const [pending, startTransition] = useTransition();
+  const impact = useDeletionImpact(Boolean(deleting), () =>
+    deleting ? getMeetingLinkDeletionImpact(deleting.id) : Promise.resolve({ ok: true as const, data: { records: 0 } }),
+  );
+  const records = impact.status === "ready" ? impact.data.records : 0;
   const teams = [...new Set([...TEAM_OPTIONS, ...memberTeams.filter(Boolean)])].sort((a, b) => a.localeCompare(b));
 
   return (
@@ -221,9 +226,10 @@ export function MeetingLinksManager({
       <ConfirmDialog
         open={Boolean(deleting)}
         onOpenChange={(o) => !o && setDeleting(null)}
-        title="Delete this meeting link?"
-        description={deleting ? `“${deleting.title}” will be removed for everyone.` : ""}
+        title={deleting ? `Delete “${deleting.title}”?` : ""}
+        description="This meeting schedule will be removed for everyone. Tasks and people are not affected."
         pending={pending}
+        confirmDisabled={impact.status !== "ready"}
         onConfirm={() =>
           startTransition(async () => {
             if (!deleting) return;
@@ -234,7 +240,21 @@ export function MeetingLinksManager({
             } else toast.error(r.error);
           })
         }
-      />
+      >
+        {impact.status === "ready" ? (
+          records ? (
+            <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              Also permanently deleted: {records} meeting record{records === 1 ? "" : "s"} (agenda, notes, decisions) for this meeting.
+            </p>
+          ) : (
+            <p className="text-muted-foreground">No meeting records are attached.</p>
+          )
+        ) : impact.status === "error" ? (
+          <p className="text-destructive">{impact.error}</p>
+        ) : (
+          <p className="text-muted-foreground">Checking meeting records…</p>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

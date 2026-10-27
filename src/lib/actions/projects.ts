@@ -2,6 +2,8 @@
 
 import { refresh } from "next/cache";
 
+import { taskSetImpact } from "@/lib/data/deletion-impact";
+import type { DeletionImpact } from "@/lib/deletion";
 import { isPriority, isProjectStatus, type Priority, type ProjectStatus } from "@/lib/domain";
 
 import { NOT_PERMITTED, cleanText, dbError, fail, getActor, isUuid, ok, parseDate, type ActionResult } from "./shared";
@@ -83,6 +85,26 @@ export async function updateProject(projectId: string, input: ProjectInput): Pro
   return ok();
 }
 
+/** Read-only: every task, subtask and task record removed with the project. */
+export async function getProjectDeletionImpact(projectId: string): Promise<ActionResult<DeletionImpact>> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can delete projects.");
+  if (!isUuid(projectId)) return fail("Invalid project.");
+  const { data: project, error } = await actor.supabase.from("projects").select("id, is_default").eq("id", projectId).maybeSingle();
+  if (error) return fail(dbError(error));
+  if (!project) return fail(NOT_PERMITTED);
+  if (project.is_default) return fail("The default General project cannot be deleted.");
+  try {
+    const impact = await taskSetImpact(actor.supabase, project.id, "ALL");
+    return ok(impact);
+  } catch (e) {
+    console.error("Project deletion impact failed", e);
+    return fail("Could not check what this project contains.");
+  }
+}
+
+/** Deletes the project and, by cascade, only its own tasks (and their comments, time entries, links). */
 export async function deleteProject(projectId: string): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;

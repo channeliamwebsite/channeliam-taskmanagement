@@ -107,8 +107,8 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
                 }}
               />
             ) : null}
-            {role === "SUPER_ADMIN" ? (
-              <DeleteProjectButton projectId={project.id} name={project.name} taskCount={project.totalTasks} />
+            {role === "SUPER_ADMIN" && !project.isDefault ? (
+              <DeleteProjectButton projectId={project.id} name={project.name} />
             ) : null}
           </>
         }

@@ -6,13 +6,15 @@ import { useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { ImpactSummary, useDeletionImpact } from "@/components/app/deletion-impact";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { createProject, deleteProject, updateProject } from "@/lib/actions/projects";
+import { createProject, deleteProject, getProjectDeletionImpact, updateProject } from "@/lib/actions/projects";
+import { describeImpact } from "@/lib/deletion";
 import {
   PRIORITIES,
   PRIORITY_LABELS,
@@ -211,10 +213,11 @@ export function ProjectFormButton({
   );
 }
 
-export function DeleteProjectButton({ projectId, name, taskCount }: { projectId: string; name: string; taskCount: number }) {
+export function DeleteProjectButton({ projectId, name }: { projectId: string; name: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const impact = useDeletionImpact(open, () => getProjectDeletionImpact(projectId));
   return (
     <>
       <Button variant="destructive" className="h-9" onClick={() => setOpen(true)}>
@@ -223,9 +226,10 @@ export function DeleteProjectButton({ projectId, name, taskCount }: { projectId:
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
-        title="Delete this project?"
-        description={`“${name}” and all ${taskCount} of its tasks will be permanently deleted. Consider archiving instead.`}
+        title={`Delete “${name}”?`}
+        description="The project and all of its own tasks will be permanently deleted. Other projects, clients and people are not affected. Consider archiving instead."
         pending={pending}
+        confirmDisabled={impact.status !== "ready"}
         onConfirm={() =>
           startTransition(async () => {
             const r = await deleteProject(projectId);
@@ -236,7 +240,13 @@ export function DeleteProjectButton({ projectId, name, taskCount }: { projectId:
             } else toast.error(r.error);
           })
         }
-      />
+      >
+        <ImpactSummary
+          state={impact}
+          lines={impact.status === "ready" ? describeImpact(impact.data) : []}
+          empty="The project has no tasks."
+        />
+      </ConfirmDialog>
     </>
   );
 }

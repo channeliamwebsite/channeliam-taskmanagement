@@ -85,6 +85,21 @@ export async function updateMeetingLink(id: string, input: MeetingLinkInput): Pr
   return ok();
 }
 
+/** Read-only: how many meeting records (notes, decisions) are removed with the schedule. */
+export async function getMeetingLinkDeletionImpact(id: string): Promise<ActionResult<{ records: number }>> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can manage meeting links.");
+  if (!isUuid(id)) return fail("Invalid meeting link.");
+  const { count, error } = await actor.supabase
+    .from("meeting_records")
+    .select("id", { count: "exact", head: true })
+    .eq("meeting_link_id", id);
+  if (error) return fail(dbError(error));
+  return ok({ records: count ?? 0 });
+}
+
+/** Deletes the schedule and, by cascade, its meeting records only. */
 export async function deleteMeetingLink(id: string): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;

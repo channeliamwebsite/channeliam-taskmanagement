@@ -1,15 +1,16 @@
 "use client";
 
-import { Loader2, NotebookPen } from "lucide-react";
+import { Loader2, NotebookPen, Trash2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { saveMeetingRecord } from "@/lib/actions/meeting-records";
+import { deleteMeetingRecord, saveMeetingRecord } from "@/lib/actions/meeting-records";
 import { formatDate } from "@/lib/domain";
 
 type Status = "SCHEDULED" | "HELD" | "CANCELLED";
@@ -40,6 +41,7 @@ export function MeetingRecordButton({
   taskOptions: { id: string; title: string }[];
 }) {
   const [open, setOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState<Status>(record?.status ?? "SCHEDULED");
   const [agenda, setAgenda] = useState(record?.agenda ?? "");
@@ -61,6 +63,17 @@ export function MeetingRecordButton({
       const r = await saveMeetingRecord({ workspaceId, meetingLinkId: meetingId, meetingDate: date, status, agenda, notes, decisions, followUpTaskIds: followUps });
       if (r.ok) {
         toast.success("Meeting record saved");
+        setOpen(false);
+      } else toast.error(r.error);
+    });
+  }
+
+  function remove() {
+    startTransition(async () => {
+      const r = await deleteMeetingRecord(meetingId, date);
+      if (r.ok) {
+        toast.success("Meeting record deleted");
+        setConfirmDelete(false);
         setOpen(false);
       } else toast.error(r.error);
     });
@@ -123,6 +136,11 @@ export function MeetingRecordButton({
             </div>
           </div>
           <DialogFooter>
+            {record ? (
+              <Button variant="ghost" className="mr-auto text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)} disabled={pending}>
+                <Trash2 aria-hidden="true" /> Delete record
+              </Button>
+            ) : null}
             <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
               Cancel
             </Button>
@@ -133,6 +151,14 @@ export function MeetingRecordButton({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete the record of “${title}” on ${formatDate(date)}?`}
+        description="Its status, agenda, notes, decisions and follow-up links will be permanently deleted. The meeting schedule and the linked tasks are kept."
+        pending={pending}
+        onConfirm={remove}
+      />
     </>
   );
 }

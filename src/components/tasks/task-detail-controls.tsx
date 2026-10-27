@@ -1,16 +1,25 @@
 "use client";
 
-import { CheckCircle2, Loader2, Pencil, Trash2, Users } from "lucide-react";
+import { CheckCircle2, Loader2, Pencil, Trash2, Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { ImpactSummary, useDeletionImpact } from "@/components/app/deletion-impact";
 import { UserAvatar } from "@/components/app/user-avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { deleteTask, setTaskAssignees, updateTaskProgress, updateTaskStatus } from "@/lib/actions/tasks";
+import {
+  deleteTask,
+  getTaskDeletionImpact,
+  removeTaskAssignee,
+  setTaskAssignees,
+  updateTaskProgress,
+  updateTaskStatus,
+} from "@/lib/actions/tasks";
 import { ROLE_LABELS } from "@/lib/auth/roles";
+import { describeImpact } from "@/lib/deletion";
 
 import { AssigneePicker, type MemberOption } from "./assignee-picker";
 import { TaskFormDialog, type TaskFormValues } from "./task-form-dialog";
@@ -44,6 +53,7 @@ export function TaskHeaderActions({
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const impact = useDeletionImpact(deleteOpen, () => getTaskDeletionImpact(taskId));
 
   return (
     <>
@@ -90,13 +100,14 @@ export function TaskHeaderActions({
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-        title="Delete this task?"
+        title={`Delete “${title}”?`}
         description={
           subtaskCount
-            ? `“${title}” and its ${subtaskCount} subtask${subtaskCount > 1 ? "s" : ""} (including nested ones), comments and history will be permanently deleted.`
-            : `“${title}”, its comments and history will be permanently deleted.`
+            ? "This task and its subtasks (including nested ones) will be permanently deleted. Assigned people are not affected."
+            : "This task and its history will be permanently deleted. Assigned people are not affected."
         }
         pending={pending}
+        confirmDisabled={impact.status !== "ready"}
         onConfirm={() =>
           startTransition(async () => {
             const r = await deleteTask(taskId);
@@ -107,18 +118,26 @@ export function TaskHeaderActions({
             } else toast.error(r.error);
           })
         }
-      />
+      >
+        <ImpactSummary
+          state={impact}
+          lines={impact.status === "ready" ? describeImpact(impact.data) : []}
+          empty="No subtasks, comments or time entries are attached."
+        />
+      </ConfirmDialog>
     </>
   );
 }
 
 export function AssigneesPanel({
   taskId,
+  taskTitle,
   assignees,
   members,
   canAssign,
 }: {
   taskId: string;
+  taskTitle: string;
   assignees: { userId: string; name: string; isPrimary: boolean; role?: string }[];
   members: MemberOption[];
   canAssign: boolean;
@@ -127,6 +146,7 @@ export function AssigneesPanel({
   const [selected, setSelected] = useState<string[]>([]);
   const [primary, setPrimary] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [removing, setRemoving] = useState<{ userId: string; name: string } | null>(null);
 
   function openEditor() {
     setSelected(assignees.map((a) => a.userId));
@@ -153,6 +173,16 @@ export function AssigneesPanel({
                 ) : role ? (
                   <span className="text-[11px] text-muted-foreground">{ROLE_LABELS[role]}</span>
                 ) : null}
+                {canAssign ? (
+                  <button
+                    type="button"
+                    onClick={() => setRemoving({ userId: a.userId, name: a.name })}
+                    className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive"
+                    aria-label={`Remove ${a.name} from this task`}
+                  >
+                    <X className="size-3.5" aria-hidden="true" />
+                  </button>
+                ) : null}
               </li>
             );
           })}
@@ -163,6 +193,25 @@ export function AssigneesPanel({
           <Users aria-hidden="true" /> {assignees.length ? "Reassign / edit" : "Assign people"}
         </Button>
       ) : null}
+
+      <ConfirmDialog
+        open={Boolean(removing)}
+        onOpenChange={(o) => !o && setRemoving(null)}
+        title={removing ? `Remove ${removing.name} from “${taskTitle}”?` : ""}
+        description="Only this assignment is removed. The person's account, the task and other assignees are kept."
+        confirmLabel="Remove"
+        pending={pending}
+        onConfirm={() =>
+          startTransition(async () => {
+            if (!removing) return;
+            const r = await removeTaskAssignee(taskId, removing.userId);
+            if (r.ok) {
+              toast.success(`${removing.name} removed from the task`);
+              setRemoving(null);
+            } else toast.error(r.error);
+          })
+        }
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">

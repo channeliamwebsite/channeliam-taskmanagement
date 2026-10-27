@@ -3,7 +3,9 @@
 import { refresh } from "next/cache";
 
 import { requireSession } from "@/lib/auth/dal";
+import { taskSetImpact } from "@/lib/data/deletion-impact";
 import { getTask } from "@/lib/data/tasks";
+import type { DeletionImpact } from "@/lib/deletion";
 import { isPriority, isTaskStatus, isTaskType, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
 import { EDITABLE_TASK_FIELDS, TASK_FIELD_LABELS, planTaskEdit, type EditableTaskValues } from "@/lib/task-edit";
 import type { Database } from "@/types/database";
@@ -304,6 +306,24 @@ export async function updateTaskProgress(taskId: string, progress: number): Prom
   return ok();
 }
 
+/** Read-only: what deleting this task also removes (shown before confirming). */
+export async function getTaskDeletionImpact(taskId: string): Promise<ActionResult<DeletionImpact>> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (!isUuid(taskId)) return fail("Invalid task.");
+  const { data: task, error } = await actor.supabase.from("tasks").select("id, project_id").eq("id", taskId).maybeSingle();
+  if (error) return fail(dbError(error));
+  if (!task) return fail(NOT_PERMITTED);
+  try {
+    const impact = await taskSetImpact(actor.supabase, task.project_id, [task.id]);
+    return ok(impact);
+  } catch (e) {
+    console.error("Task deletion impact failed", e);
+    return fail("Could not check what this task contains.");
+  }
+}
+
+/** Deletes the task and, by cascade, its nested subtasks and their comments, time entries and links. */
 export async function deleteTask(taskId: string): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;
@@ -312,6 +332,49 @@ export async function deleteTask(taskId: string): Promise<ActionResult> {
   const { data, error } = await actor.supabase.from("tasks").delete().eq("id", taskId).select("id");
   if (error) return fail(dbError(error, "Could not delete the task."));
   if (!data.length) return fail(NOT_PERMITTED);
+
+  refresh();
+  return ok();
+}
+
+/**
+ * Removes one person from a task. The user, the task and the other assignees
+ * are kept; if the primary assignee is removed, the longest-assigned remaining
+ * person becomes primary. RLS: task managers only.
+ */
+export async function removeTaskAssignee(taskId: string, userId: string): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role === "INDIVIDUAL") return fail("Only admins can change assignees.");
+  if (!isUuid(taskId) || !isUuid(userId)) return fail("Invalid assignee.");
+  const { supabase } = actor;
+
+  const { data, error } = await supabase
+    .from("task_assignees")
+    .delete()
+    .eq("task_id", taskId)
+    .eq("user_id", userId)
+    .select("is_primary");
+  if (error) return fail(dbError(error, "Could not remove the assignee."));
+  if (!data.length) return fail("That person is no longer assigned to this task, or you don't have permission to change it.");
+
+  if (data[0].is_primary) {
+    const { data: next } = await supabase
+      .from("task_assignees")
+      .select("user_id")
+      .eq("task_id", taskId)
+      .order("assigned_at")
+      .limit(1)
+      .maybeSingle();
+    if (next) {
+      const { error: promoteError } = await supabase
+        .from("task_assignees")
+        .update({ is_primary: true })
+        .eq("task_id", taskId)
+        .eq("user_id", next.user_id);
+      if (promoteError) console.error("Primary assignee promotion failed", promoteError.code);
+    }
+  }
 
   refresh();
   return ok();

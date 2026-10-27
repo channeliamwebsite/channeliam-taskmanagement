@@ -7,6 +7,7 @@ import { ActivityFeed } from "@/components/app/activity-feed";
 import { ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { ClientFormButton } from "@/components/clients/client-form-button";
+import { DeleteClientButton } from "@/components/clients/delete-client-button";
 import { CompactTaskList, StatCard } from "@/components/dashboard/widgets";
 import { listActivity, type ActivityItem } from "@/lib/data/activity";
 import { getClient } from "@/lib/data/clients";
@@ -66,16 +67,19 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
         description={client.isActive ? "Active client" : "Inactive client"}
         actions={
           isAdmin ? (
-            <ClientFormButton
-              workspaceId={client.workspaceId}
-              clientId={client.id}
-              initial={{
-                name: client.name,
-                contactName: client.contactName ?? "",
-                contactEmail: client.contactEmail ?? "",
-                notes: client.notes ?? "",
-              }}
-            />
+            <>
+              <ClientFormButton
+                workspaceId={client.workspaceId}
+                clientId={client.id}
+                initial={{
+                  name: client.name,
+                  contactName: client.contactName ?? "",
+                  contactEmail: client.contactEmail ?? "",
+                  notes: client.notes ?? "",
+                }}
+              />
+              {session.profile.role === "SUPER_ADMIN" ? <DeleteClientButton clientId={client.id} name={client.name} /> : null}
+            </>
           ) : null
         }
       >

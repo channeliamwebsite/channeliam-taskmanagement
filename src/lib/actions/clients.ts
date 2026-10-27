@@ -39,6 +39,48 @@ export async function createClient(workspaceId: string, input: ClientInput): Pro
   return ok({ id: data.id });
 }
 
+const CLIENT_HAS_PROJECTS = (n?: number) =>
+  `This client still has ${n ? `${n} project${n === 1 ? "" : "s"}` : "projects"}. Move them to another client or delete them first.`;
+
+/** Read-only: the projects that still belong to this client (they block deletion). */
+export async function getClientDeletionImpact(clientId: string): Promise<ActionResult<{ projects: { id: string; name: string }[] }>> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can delete clients.");
+  if (!isUuid(clientId)) return fail("Invalid client.");
+  const { data: client } = await actor.supabase.from("clients").select("id").eq("id", clientId).maybeSingle();
+  if (!client) return fail(NOT_PERMITTED);
+  const { data, error } = await actor.supabase.from("projects").select("id, name").eq("client_id", clientId).order("name");
+  if (error) return fail(dbError(error));
+  return ok({ projects: data });
+}
+
+/**
+ * Deletion policy: a client is deleted only when no project belongs to it.
+ * Projects are never deleted or detached as a side effect; move or delete them
+ * first. The database enforces the same rule (migration 014). RLS: super admins.
+ */
+export async function deleteClient(clientId: string): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can delete clients.");
+  if (!isUuid(clientId)) return fail("Invalid client.");
+  const { supabase } = actor;
+
+  const { count, error: countError } = await supabase
+    .from("projects")
+    .select("id", { count: "exact", head: true })
+    .eq("client_id", clientId);
+  if (countError) return fail(dbError(countError, "Could not delete the client."));
+  if (count) return fail(CLIENT_HAS_PROJECTS(count));
+
+  const { data, error } = await supabase.from("clients").delete().eq("id", clientId).select("id");
+  if (error) return fail(error.code === "23503" ? CLIENT_HAS_PROJECTS() : dbError(error, "Could not delete the client."));
+  if (!data.length) return fail(NOT_PERMITTED);
+  refresh();
+  return ok();
+}
+
 export async function updateClient(clientId: string, input: ClientInput): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;

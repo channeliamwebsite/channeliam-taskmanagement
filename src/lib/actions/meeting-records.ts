@@ -16,6 +16,27 @@ export type MeetingRecordInput = {
   followUpTaskIds?: string[];
 };
 
+/** Deletes one meeting's record for one date; the meeting schedule is kept. */
+export async function deleteMeetingRecord(meetingLinkId: string, meetingDate: string): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can record meetings.");
+  if (!isUuid(meetingLinkId)) return fail("Invalid meeting.");
+  const date = parseDate(meetingDate);
+  if (!date) return fail("Enter a valid date.");
+
+  const { data, error } = await actor.supabase
+    .from("meeting_records")
+    .delete()
+    .eq("meeting_link_id", meetingLinkId)
+    .eq("meeting_date", date)
+    .select("id");
+  if (error) return fail(dbError(error, "Could not delete the meeting record."));
+  if (!data.length) return fail(NOT_PERMITTED);
+  refresh();
+  return ok();
+}
+
 /** Super admin records what happened at one meeting on one date (RLS: super admins of the workspace only). */
 export async function saveMeetingRecord(input: MeetingRecordInput): Promise<ActionResult> {
   const actor = await getActor();

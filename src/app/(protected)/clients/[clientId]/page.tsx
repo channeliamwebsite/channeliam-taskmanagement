@@ -8,12 +8,13 @@ import { ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { ClientFormButton } from "@/components/clients/client-form-button";
 import { DeleteClientButton } from "@/components/clients/delete-client-button";
+import { ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { CompactTaskList, StatCard } from "@/components/dashboard/widgets";
 import { listActivity, type ActivityItem } from "@/lib/data/activity";
 import { getClient } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
 import { listTasks } from "@/lib/data/tasks";
-import { getWorkspaceMembers, getMyWorkspaces } from "@/lib/data/workspace";
+import { canCreateProjects, getWorkspaceMembers, getMyWorkspaces } from "@/lib/data/workspace";
 import { addDaysISO, displayName, formatDate, isOverdue, todayISO } from "@/lib/domain";
 import { combineProgress, isLeafTask } from "@/lib/progress";
 
@@ -37,9 +38,11 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
 
   const projects = (await listProjects(client.workspaceId)).filter((p) => p.clientId === client.id);
   const projectIds = projects.map((p) => p.id);
-  const [tasks, members, activityLists] = await Promise.all([
+  const [tasks, members, canCreate, activityLists] = await Promise.all([
     listTasks({ workspaceId: client.workspaceId, projectIds }),
     getWorkspaceMembers(client.workspaceId),
+    // Same rule as the Projects page; createProject and RLS enforce it again.
+    canCreateProjects(client.workspaceId, session.user.id, session.profile.role),
     Promise.all(projects.slice(0, 10).map((p) => listActivity({ workspaceId: client.workspaceId, projectId: p.id, limit: 10 }))),
   ]);
   const activity = activityLists
@@ -59,6 +62,9 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
     .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
   const names = new Map(members.map((m) => [m.userId, displayName({ full_name: m.fullName, email: m.email })]));
   const isAdmin = session.profile.role !== "INDIVIDUAL";
+  const owners = members
+    .filter((m) => m.isActive)
+    .map((m) => ({ userId: m.userId, name: displayName({ full_name: m.fullName, email: m.email }) }));
 
   return (
     <>
@@ -101,9 +107,27 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="grid min-w-0 content-start gap-6">
-          <Section title="Projects">
+          <Section
+            title={`Projects (${projects.length})`}
+            action={
+              canCreate ? (
+                <ProjectFormButton
+                  mode="create"
+                  workspaceId={client.workspaceId}
+                  owners={owners}
+                  clients={[]}
+                  fixedClient={{ id: client.id, name: client.name }}
+                />
+              ) : null
+            }
+          >
             {projects.length === 0 ? (
-              <EmptyState icon={FolderKanban} title="No projects for this client" description="Assign a client when creating or editing a project." className="py-6" />
+              <EmptyState
+                icon={FolderKanban}
+                title="No projects for this client"
+                description={canCreate ? "Use Add project to create the first one." : "Projects for this client will appear here."}
+                className="py-6"
+              />
             ) : (
               <ul className="-my-2 divide-y">
                 {projects.map((p) => (

@@ -2,7 +2,7 @@
 
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
+import { useRef, useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
@@ -55,6 +55,7 @@ export function ProjectFormButton({
   initial,
   owners,
   clients,
+  fixedClient,
 }: {
   mode: "create" | "edit";
   workspaceId: string;
@@ -62,16 +63,22 @@ export function ProjectFormButton({
   initial?: ProjectFormValues;
   owners: { userId: string; name: string }[];
   clients: { id: string; name: string }[];
+  /** Create from a client's page: the project always belongs to this client and the page stays put. */
+  fixedClient?: { id: string; name: string };
 }) {
   const router = useRouter();
+  const blank: ProjectFormValues = fixedClient ? { ...EMPTY, clientId: fixedClient.id, clientName: fixedClient.name } : EMPTY;
   const [open, setOpen] = useState(false);
-  const [values, setValues] = useState<ProjectFormValues>(initial ?? EMPTY);
+  const [values, setValues] = useState<ProjectFormValues>(initial ?? blank);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Blocks a second submit fired before the pending state has rendered.
+  const submitting = useRef(false);
   const set = <K extends keyof ProjectFormValues>(k: K, v: ProjectFormValues[K]) => setValues((s) => ({ ...s, [k]: v }));
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
+    if (submitting.current) return;
     setError(null);
     if (!values.name.trim()) return setError("Project name is required.");
     if (values.startDate && values.dueDate && values.dueDate < values.startDate) {
@@ -80,27 +87,35 @@ export function ProjectFormButton({
     const input = {
       name: values.name,
       description: values.description,
-      clientId: values.clientId || null,
-      clientName: clients.find((cl) => cl.id === values.clientId)?.name ?? (values.clientId ? values.clientName : null),
+      clientId: fixedClient?.id ?? (values.clientId || null),
+      clientName: fixedClient?.name ?? clients.find((cl) => cl.id === values.clientId)?.name ?? (values.clientId ? values.clientName : null),
       status: values.status,
       priority: values.priority,
       startDate: values.startDate || null,
       dueDate: values.dueDate || null,
       ownerId: values.ownerId || null,
     };
+    submitting.current = true;
     startTransition(async () => {
-      if (mode === "create") {
-        const r = await createProject(workspaceId, input);
-        if (!r.ok) return setError(r.error);
-        toast.success("Project created");
-        setOpen(false);
-        setValues(EMPTY);
-        router.push(`/projects/${r.data.id}`);
-      } else {
-        const r = await updateProject(projectId!, input);
-        if (!r.ok) return setError(r.error);
-        toast.success("Project updated");
-        setOpen(false);
+      try {
+        if (mode === "create") {
+          const r = await createProject(workspaceId, input);
+          if (!r.ok) return setError(r.error);
+          toast.success(fixedClient ? `Project added to ${fixedClient.name}` : "Project created");
+          setOpen(false);
+          setValues(blank);
+          // On a client's page the refreshed project list shows the new project.
+          if (!fixedClient) router.push(`/projects/${r.data.id}`);
+        } else {
+          const r = await updateProject(projectId!, input);
+          if (!r.ok) return setError(r.error);
+          toast.success("Project updated");
+          setOpen(false);
+        }
+      } catch {
+        setError("Could not reach the server. Check your connection and try again.");
+      } finally {
+        submitting.current = false;
       }
     });
   }
@@ -108,8 +123,14 @@ export function ProjectFormButton({
   return (
     <>
       {mode === "create" ? (
-        <Button className="h-9" onClick={() => setOpen(true)}>
-          <Plus aria-hidden="true" /> New project
+        <Button
+          className="h-9"
+          onClick={() => {
+            setError(null);
+            setOpen(true);
+          }}
+        >
+          <Plus aria-hidden="true" /> {fixedClient ? "Add project" : "New project"}
         </Button>
       ) : (
         <Button
@@ -124,11 +145,13 @@ export function ProjectFormButton({
           <Pencil aria-hidden="true" /> Edit project
         </Button>
       )}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
         <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{mode === "create" ? "New project" : "Edit project"}</DialogTitle>
-            <DialogDescription>Projects group related tasks for a client or initiative.</DialogDescription>
+            <DialogTitle>{mode === "edit" ? "Edit project" : fixedClient ? `Add project to ${fixedClient.name}` : "New project"}</DialogTitle>
+            <DialogDescription>
+              {fixedClient ? "The new project will belong to this client." : "Projects group related tasks for a client or initiative."}
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={onSubmit} className="grid gap-4" noValidate>
             {error ? (
@@ -140,18 +163,20 @@ export function ProjectFormButton({
               <Label htmlFor="project-name">Name</Label>
               <Input id="project-name" value={values.name} onChange={(e) => set("name", e.target.value)} maxLength={200} autoFocus className="h-9" />
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="project-client">Client</Label>
-              <NativeSelect id="project-client" value={values.clientId} onChange={(e) => set("clientId", e.target.value)}>
-                <option value="">No client (internal)</option>
-                {clients.map((cl) => (
-                  <option key={cl.id} value={cl.id}>
-                    {cl.name}
-                  </option>
-                ))}
-              </NativeSelect>
-              {clients.length === 0 ? <p className="text-xs text-muted-foreground">Add clients on the Clients page.</p> : null}
-            </div>
+            {fixedClient ? null : (
+              <div className="grid gap-1.5">
+                <Label htmlFor="project-client">Client</Label>
+                <NativeSelect id="project-client" value={values.clientId} onChange={(e) => set("clientId", e.target.value)}>
+                  <option value="">No client (internal)</option>
+                  {clients.map((cl) => (
+                    <option key={cl.id} value={cl.id}>
+                      {cl.name}
+                    </option>
+                  ))}
+                </NativeSelect>
+                {clients.length === 0 ? <p className="text-xs text-muted-foreground">Add clients on the Clients page.</p> : null}
+              </div>
+            )}
             <div className="grid gap-1.5">
               <Label htmlFor="project-description">Description</Label>
               <Textarea id="project-description" value={values.description} onChange={(e) => set("description", e.target.value)} rows={3} maxLength={5000} />

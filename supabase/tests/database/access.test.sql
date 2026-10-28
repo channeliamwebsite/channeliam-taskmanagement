@@ -55,6 +55,27 @@ select throws_ok($$
   values ('f1000000-0000-0000-0000-000000000001', 'Cross link', 'c2000000-0000-0000-0000-000000000002',
           'a2222222-2222-2222-2222-222222222222')
 $$, '23514', 'Client must belong to the same workspace', 'project cannot reference another workspace''s client');
+-- Adding a project from a client's page (client preselected).
+select lives_ok($$
+  insert into public.projects (workspace_id, name, client_id, client_name, created_by)
+  values ('f1000000-0000-0000-0000-000000000001', 'Client page project', 'c1000000-0000-0000-0000-000000000001', 'Client One',
+          'a2222222-2222-2222-2222-222222222222')
+$$, 'permitted admin adds a project to a client of own workspace');
+select is((select client_id from public.projects where name = 'Client page project'), 'c1000000-0000-0000-0000-000000000001'::uuid,
+          'the new project belongs to that client');
+set local request.jwt.claims to '{"sub":"a3333333-3333-3333-3333-333333333333","role":"authenticated"}';
+select throws_ok($$
+  insert into public.projects (workspace_id, name, client_id, created_by)
+  values ('f1000000-0000-0000-0000-000000000001', 'Individual project', 'c1000000-0000-0000-0000-000000000001',
+          'a3333333-3333-3333-3333-333333333333')
+$$, '42501', null, 'individual cannot add a project to a client');
+set local request.jwt.claims to '{"sub":"a4444444-4444-4444-4444-444444444444","role":"authenticated"}';
+select throws_ok($$
+  insert into public.projects (workspace_id, name, client_id, created_by)
+  values ('f1000000-0000-0000-0000-000000000001', 'Foreign project', 'c1000000-0000-0000-0000-000000000001',
+          'a4444444-4444-4444-4444-444444444444')
+$$, '42501', null, 'another workspace''s super admin cannot add a project to this client');
+set local request.jwt.claims to '{"sub":"a2222222-2222-2222-2222-222222222222","role":"authenticated"}';
 delete from public.clients where id = 'c1000000-0000-0000-0000-000000000001';
 reset role;
 select is((select count(*)::int from public.clients where id = 'c1000000-0000-0000-0000-000000000001'), 1,

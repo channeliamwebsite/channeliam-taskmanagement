@@ -55,6 +55,11 @@ select throws_ok($$
   values ('f1000000-0000-0000-0000-000000000001', 'Cross link', 'c2000000-0000-0000-0000-000000000002',
           'a2222222-2222-2222-2222-222222222222')
 $$, '23514', 'Client must belong to the same workspace', 'project cannot reference another workspace''s client');
+select throws_ok($$
+  insert into public.projects (workspace_id, name, client_id, created_by)
+  values ('f2000000-0000-0000-0000-000000000002', 'Foreign workspace', 'c2000000-0000-0000-0000-000000000002',
+          'a2222222-2222-2222-2222-222222222222')
+$$, '42501', null, 'permitted admin cannot add a project to another workspace''s client');
 -- Adding a project from a client's page (client preselected).
 select lives_ok($$
   insert into public.projects (workspace_id, name, client_id, client_name, created_by)

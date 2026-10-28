@@ -24,6 +24,7 @@ import {
   StatCard,
 } from "@/components/dashboard/widgets";
 import { MeetingRecordButton } from "@/components/meetings/meeting-record-button";
+import { ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { ApproveTaskButton } from "@/components/tasks/approve-task-button";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { DailyTrackingPanel } from "@/components/team/daily-tracking-panel";
@@ -31,6 +32,7 @@ import { TeamTodayPanel } from "@/components/team/team-today-panel";
 import { buttonVariants } from "@/components/ui/button";
 import type { Session } from "@/lib/auth/dal";
 import { ROLE_LABELS } from "@/lib/auth/roles";
+import { listClients } from "@/lib/data/clients";
 import { loadDailyTracking } from "@/lib/data/daily-tracking-data";
 import { summarizeTracking } from "@/lib/daily-tracking";
 import { loadError } from "@/lib/data/errors";
@@ -39,7 +41,7 @@ import { listMeetingLinks, meetingsForPerson, type MeetingLink } from "@/lib/dat
 import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
-import { getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
+import { canCreateProjects, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
 import { PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue } from "@/lib/domain";
 import { isLeafTask } from "@/lib/progress";
 import { isCompletedOn, isInTodaysWorkload } from "@/lib/scheduling";
@@ -65,7 +67,7 @@ export default async function DashboardPage() {
   const isAdmin = session.profile.role === "ADMIN";
   const isIndividual = session.profile.role === "INDIVIDUAL";
   const today = workspaceToday(workspace);
-  const [tasks, projects, members, team, meetings, projectOptions, myReport, tracking, meetingRecords] = await Promise.all([
+  const [tasks, projects, members, team, meetings, projectOptions, myReport, tracking, meetingRecords, canCreate, clients] = await Promise.all([
     listTasks({ workspaceId: workspace.id }),
     listProjects(workspace.id),
     getWorkspaceMembers(workspace.id),
@@ -78,6 +80,10 @@ export default async function DashboardPage() {
     isSuperAdmin ? loadDailyTracking(workspace.id, workspaceToday(workspace)) : Promise.resolve({ rows: [], reports: [] }),
     // Meeting notes for this week (migration 013), super admins only.
     isSuperAdmin ? listMeetingRecords(workspace.id, today, addDays(today, 6)) : Promise.resolve({ available: false, records: [] }),
+    // Add project on the admin dashboard: same rule as the Projects page; createProject and RLS enforce it again.
+    isAdmin ? canCreateProjects(workspace.id, session.user.id, session.profile.role) : Promise.resolve(false),
+    // RLS-scoped to the active workspace, so the picker lists only clients the admin can attach a project to.
+    isAdmin ? listClients(workspace.id) : Promise.resolve([]),
   ]);
 
   const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
@@ -102,7 +108,16 @@ export default async function DashboardPage() {
   }
 
   if (isAdmin && team) {
-    return <AdminDashboard {...props} name={name} team={team} projectOptions={projectOptions} meetingCard={meetingCard} />;
+    return (
+      <AdminDashboard
+        {...props}
+        name={name}
+        team={team}
+        projectOptions={projectOptions}
+        meetingCard={meetingCard}
+        clients={canCreate ? clients.map((c) => ({ id: c.id, name: c.name })) : null}
+      />
+    );
   }
 
   return (
@@ -430,6 +445,8 @@ type AdminProps = Props & {
   team: Awaited<ReturnType<typeof loadTeamToday>>;
   projectOptions: Awaited<ReturnType<typeof listProjectOptions>>;
   meetingCard: ReactNode;
+  /** Clients for Add project; null when the admin may not create projects in this workspace. */
+  clients: { id: string; name: string }[] | null;
 };
 
 /** One task line: title, where it belongs, who it is with, due date and status. */
@@ -476,7 +493,7 @@ function TaskLine({
  * Admin: personal work and work handed out to others, side by side; team
  * progress below. Creating a task uses the existing New task dialog.
  */
-function AdminDashboard({ session, workspace, tasks, projects, members, today, name, team, projectOptions, meetingCard }: AdminProps) {
+function AdminDashboard({ session, workspace, tasks, projects, members, today, name, team, projectOptions, meetingCard, clients }: AdminProps) {
   const me = session.user.id;
   const handedOut = (t: TaskSummary) =>
     (t.createdBy === me || t.assignees.some((a) => a.assignedBy === me)) && t.assignees.some((a) => a.userId !== me);
@@ -501,6 +518,7 @@ function AdminDashboard({ session, workspace, tasks, projects, members, today, n
     isActive: m.isActive,
     team: m.team,
   }));
+  const owners = memberOptions.filter((m) => m.isActive).map((m) => ({ userId: m.userId, name: m.name }));
   const quickLink = buttonVariants({ variant: "outline", size: "sm", className: "h-8" });
   const textLink = "text-xs text-muted-foreground hover:text-foreground hover:underline";
 
@@ -512,6 +530,17 @@ function AdminDashboard({ session, workspace, tasks, projects, members, today, n
         actions={
           <div className="flex flex-wrap gap-2">
             <NewTaskButton projects={projectOptions} members={memberOptions} workspaceId={workspace.id} size="sm" />
+            {clients ? (
+              <ProjectFormButton
+                mode="create"
+                workspaceId={workspace.id}
+                owners={owners}
+                clients={clients}
+                requireClient
+                stayOnPage
+                size="sm"
+              />
+            ) : null}
             <Link href="/my-day" className={quickLink}>
               <Sun aria-hidden="true" /> My Day
             </Link>

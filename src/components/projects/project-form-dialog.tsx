@@ -56,6 +56,9 @@ export function ProjectFormButton({
   owners,
   clients,
   fixedClient,
+  requireClient = false,
+  stayOnPage = false,
+  size = "default",
 }: {
   mode: "create" | "edit";
   workspaceId: string;
@@ -65,6 +68,11 @@ export function ProjectFormButton({
   clients: { id: string; name: string }[];
   /** Create from a client's page: the project always belongs to this client and the page stays put. */
   fixedClient?: { id: string; name: string };
+  /** The project must belong to one of `clients` (no "internal" option). */
+  requireClient?: boolean;
+  /** After creating, stay on the current page (it refreshes) instead of opening the project. */
+  stayOnPage?: boolean;
+  size?: "default" | "sm";
 }) {
   const router = useRouter();
   const blank: ProjectFormValues = fixedClient ? { ...EMPTY, clientId: fixedClient.id, clientName: fixedClient.name } : EMPTY;
@@ -81,6 +89,7 @@ export function ProjectFormButton({
     if (submitting.current) return;
     setError(null);
     if (!values.name.trim()) return setError("Project name is required.");
+    if (requireClient && !fixedClient && !clients.some((cl) => cl.id === values.clientId)) return setError("Choose a client.");
     if (values.startDate && values.dueDate && values.dueDate < values.startDate) {
       return setError("Due date cannot be before the start date.");
     }
@@ -104,8 +113,8 @@ export function ProjectFormButton({
           toast.success(fixedClient ? `Project added to ${fixedClient.name}` : "Project created");
           setOpen(false);
           setValues(blank);
-          // On a client's page the refreshed project list shows the new project.
-          if (!fixedClient) router.push(`/projects/${r.data.id}`);
+          // On a client's page or the dashboard the refreshed lists show the new project.
+          if (!fixedClient && !stayOnPage) router.push(`/projects/${r.data.id}`);
         } else {
           const r = await updateProject(projectId!, input);
           if (!r.ok) return setError(r.error);
@@ -124,13 +133,14 @@ export function ProjectFormButton({
     <>
       {mode === "create" ? (
         <Button
-          className="h-9"
+          size={size}
+          className={size === "default" ? "h-9" : "h-8"}
           onClick={() => {
             setError(null);
             setOpen(true);
           }}
         >
-          <Plus aria-hidden="true" /> {fixedClient ? "Add project" : "New project"}
+          <Plus aria-hidden="true" /> {fixedClient || stayOnPage ? "Add project" : "New project"}
         </Button>
       ) : (
         <Button
@@ -167,7 +177,9 @@ export function ProjectFormButton({
               <div className="grid gap-1.5">
                 <Label htmlFor="project-client">Client</Label>
                 <NativeSelect id="project-client" value={values.clientId} onChange={(e) => set("clientId", e.target.value)}>
-                  <option value="">No client (internal)</option>
+                  <option value="" disabled={requireClient}>
+                    {requireClient ? "Select a client" : "No client (internal)"}
+                  </option>
                   {clients.map((cl) => (
                     <option key={cl.id} value={cl.id}>
                       {cl.name}

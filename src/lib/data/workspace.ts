@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { cache } from "react";
 
 import { createClient } from "@/lib/supabase/server";
-import type { UserRole } from "@/lib/auth/roles";
+import { mayCreateProjects, type UserRole } from "@/lib/auth/roles";
 import { BUSINESS_TIMEZONE, todayISO } from "@/lib/domain";
 import { loadError } from "./errors";
 
@@ -88,10 +88,9 @@ export const getWorkspaceMembers = cache(async (workspaceId: string): Promise<Me
 
 /** Whether the current user may create projects in the workspace (mirrors RLS). */
 export async function canCreateProjects(workspaceId: string, userId: string, role: UserRole) {
-  if (role === "SUPER_ADMIN") return true;
-  if (role !== "ADMIN") return false;
+  if (role === "INDIVIDUAL") return false;
   const members = await getWorkspaceMembers(workspaceId);
-  return members.some((m) => m.userId === userId && m.canCreateProjects);
+  return mayCreateProjects(role, members.find((m) => m.userId === userId) ?? null);
 }
 
 /** Today's date in the workspace timezone (defaults to India). */

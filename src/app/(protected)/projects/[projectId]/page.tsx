@@ -15,7 +15,8 @@ import { listActivity } from "@/lib/data/activity";
 import { listClients } from "@/lib/data/clients";
 import { getProject } from "@/lib/data/projects";
 import { listTasks, toTaskRows } from "@/lib/data/tasks";
-import { getWorkspaceMembers } from "@/lib/data/workspace";
+import { mayEditProject } from "@/lib/auth/roles";
+import { canCreateProjects, getWorkspaceMembers } from "@/lib/data/workspace";
 import { displayName, formatDate, isPriority, isTaskStatus, todayISO, type Priority } from "@/lib/domain";
 
 import { getPageContext } from "../../_components/context";
@@ -39,7 +40,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
   const status = get("status");
   const view = get("view") === "board" ? "board" : "list";
 
-  const [tasks, members, activity, clients] = await Promise.all([
+  const [tasks, members, activity, clients, mayCreate] = await Promise.all([
     listTasks({
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -56,6 +57,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
     getWorkspaceMembers(project.workspaceId),
     listActivity({ workspaceId: project.workspaceId, projectId: project.id, limit: 15 }),
     listClients(project.workspaceId),
+    canCreateProjects(project.workspaceId, session.user.id, session.profile.role),
   ]);
 
   const memberOptions = members.map((m) => ({
@@ -68,8 +70,8 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
   const names = new Map(memberOptions.map((m) => [m.userId, m.name]));
   const role = session.profile.role;
   const userId = session.user.id;
-  const canEdit =
-    role === "SUPER_ADMIN" || (role === "ADMIN" && (project.ownerId === userId || project.createdBy === userId));
+  // Same rule as the projects update policy (migration 020); RLS enforces it again.
+  const canEdit = mayEditProject(role, userId, project, mayCreate);
   const today = todayISO();
   const rows = toTaskRows(tasks, session);
 
@@ -81,7 +83,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
         actions={
           <>
             <NewTaskButton
-              projects={[{ id: project.id, name: project.name }]}
+              projects={[{ id: project.id, name: project.name, clientId: project.clientId, clientName: project.clientName }]}
               members={memberOptions}
               workspaceId={project.workspaceId}
               defaultProjectId={project.id}

@@ -65,6 +65,7 @@ export function CalendarView({
   items,
   canCreate,
   projects,
+  clients,
   members,
   workspaceId,
   selfOnly,
@@ -76,6 +77,7 @@ export function CalendarView({
   items: CalendarItem[];
   canCreate: boolean;
   projects: ProjectOption[];
+  clients?: { id: string; name: string }[];
   members: MemberOption[];
   workspaceId: string;
   selfOnly: { userId: string } | null;
@@ -164,6 +166,7 @@ export function CalendarView({
           open
           onOpenChange={(o) => !o && setCreateFor(null)}
           projects={projects}
+          clients={clients}
           members={members}
           workspaceId={workspaceId}
           selfOnly={selfOnly}

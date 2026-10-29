@@ -22,10 +22,12 @@ export type Database = {
           new_value: Json | null
           old_value: Json | null
           project_id: string | null
+          target_user_id: string | null
           task_id: string | null
           user_id: string | null
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           action: Database["public"]["Enums"]["activity_action"]
           created_at?: string
@@ -33,6 +35,7 @@ export type Database = {
           new_value?: Json | null
           old_value?: Json | null
           project_id?: string | null
+          target_user_id?: string | null
           task_id?: string | null
           user_id?: string | null
           workspace_id: string
@@ -44,6 +47,7 @@ export type Database = {
           new_value?: Json | null
           old_value?: Json | null
           project_id?: string | null
+          target_user_id?: string | null
           task_id?: string | null
           user_id?: string | null
           workspace_id?: string
@@ -54,6 +58,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_logs_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -92,6 +103,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           description: string
@@ -146,6 +158,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           contact_email?: string | null
           contact_name?: string | null
@@ -213,6 +226,7 @@ export type Database = {
           work_remaining: string | null
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           accomplishments?: string | null
           blockers?: string | null
@@ -297,6 +311,7 @@ export type Database = {
           url: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           created_by?: string | null
@@ -361,6 +376,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           agenda?: string | null
           created_at?: string
@@ -427,6 +443,7 @@ export type Database = {
           type: Database["public"]["Enums"]["notification_type"]
           user_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           id?: string
@@ -492,6 +509,7 @@ export type Database = {
           team: string | null
           updated_at: string
         }
+        ComputedFields: never
         Insert: {
           avatar_url?: string | null
           created_at?: string
@@ -548,6 +566,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           client_id?: string | null
           client_name?: string | null
@@ -622,6 +641,7 @@ export type Database = {
           task_id: string
           user_id: string
         }
+        ComputedFields: never
         Insert: {
           assigned_at?: string
           assigned_by?: string | null
@@ -673,6 +693,7 @@ export type Database = {
           task_id: string
           uploaded_by: string | null
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           file_name: string
@@ -719,6 +740,7 @@ export type Database = {
           updated_at: string
           user_id: string | null
         }
+        ComputedFields: never
         Insert: {
           comment: string
           created_at?: string
@@ -760,6 +782,7 @@ export type Database = {
           id: string
           task_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           dependency_type?: Database["public"]["Enums"]["dependency_type"]
@@ -813,6 +836,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           actual_hours?: number
           completed_at?: string | null
@@ -897,6 +921,7 @@ export type Database = {
           task_id: string
           user_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           description?: string | null
@@ -942,6 +967,7 @@ export type Database = {
           user_id: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           can_create_projects?: boolean
           created_at?: string
@@ -983,6 +1009,7 @@ export type Database = {
           timezone: string
           updated_at: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           created_by?: string | null
@@ -1105,6 +1132,18 @@ export type Database = {
         | "PROJECT_UPDATED"
         | "PROJECT_STATUS_CHANGED"
         | "TASK_SCHEDULED"
+        | "TASK_DELETED"
+        | "PROJECT_DELETED"
+        | "CLIENT_CREATED"
+        | "CLIENT_UPDATED"
+        | "CLIENT_DELETED"
+        | "MEMBER_ADDED"
+        | "MEMBER_REMOVED"
+        | "MEMBER_PERMISSION_CHANGED"
+        | "EMPLOYEE_ROLE_CHANGED"
+        | "EMPLOYEE_DEACTIVATED"
+        | "EMPLOYEE_REACTIVATED"
+        | "EMPLOYEE_UPDATED"
       dependency_type:
         | "FINISH_TO_START"
         | "START_TO_START"
@@ -1291,6 +1330,18 @@ export const Constants = {
         "PROJECT_UPDATED",
         "PROJECT_STATUS_CHANGED",
         "TASK_SCHEDULED",
+        "TASK_DELETED",
+        "PROJECT_DELETED",
+        "CLIENT_CREATED",
+        "CLIENT_UPDATED",
+        "CLIENT_DELETED",
+        "MEMBER_ADDED",
+        "MEMBER_REMOVED",
+        "MEMBER_PERMISSION_CHANGED",
+        "EMPLOYEE_ROLE_CHANGED",
+        "EMPLOYEE_DEACTIVATED",
+        "EMPLOYEE_REACTIVATED",
+        "EMPLOYEE_UPDATED",
       ],
       dependency_type: [
         "FINISH_TO_START",

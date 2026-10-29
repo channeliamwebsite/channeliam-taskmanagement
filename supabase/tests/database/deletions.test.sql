@@ -58,9 +58,10 @@ set local role authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Unauthorized and cross-workspace attempts delete nothing (RLS: 0 rows).
+-- Admins may delete clients (019; tested in admin_operations), so the admin
+-- here only attempts what they still may not delete.
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims to '{"sub":"8d000000-0000-4000-8000-000000000002","role":"authenticated"}';
-delete from public.clients where id = 'cd000000-0000-4000-8000-000000000002';
 delete from public.projects where id = 'ad000000-0000-4000-8000-000000000002';
 delete from public.meeting_links where id = '5d000000-0000-4000-8000-000000000002';
 delete from public.meeting_records where id = '6d000000-0000-4000-8000-000000000003';
@@ -85,7 +86,7 @@ select is(
      (select count(*) from public.meeting_links where workspace_id = '9d000000-0000-4000-8000-000000000001'),
      (select count(*) from public.meeting_records where workspace_id = '9d000000-0000-4000-8000-000000000001'))),
   '2|2|4|2|2|3',
-  'admins, individuals and another workspace''s super admin cannot delete clients, projects, others'' tasks, assignees or meetings');
+  'admins (projects, others'' tasks, meetings), individuals and another workspace''s super admin (clients too) delete nothing');
 
 set local role authenticated;
 

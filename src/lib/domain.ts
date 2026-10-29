@@ -140,6 +140,18 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   PROJECT_CREATED: "created the project",
   PROJECT_UPDATED: "updated the project",
   PROJECT_STATUS_CHANGED: "changed project status",
+  PROJECT_DELETED: "deleted the project",
+  TASK_DELETED: "deleted a task",
+  CLIENT_CREATED: "created a client",
+  CLIENT_UPDATED: "updated a client",
+  CLIENT_DELETED: "deleted a client",
+  MEMBER_ADDED: "added a workspace member",
+  MEMBER_REMOVED: "removed a workspace member",
+  MEMBER_PERMISSION_CHANGED: "changed project-creation permission",
+  EMPLOYEE_ROLE_CHANGED: "changed an employee's role",
+  EMPLOYEE_DEACTIVATED: "deactivated an employee",
+  EMPLOYEE_REACTIVATED: "reactivated an employee",
+  EMPLOYEE_UPDATED: "updated an employee",
 };
 
 export function isTaskStatus(value: unknown): value is TaskStatus {

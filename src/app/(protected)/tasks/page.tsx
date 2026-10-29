@@ -6,6 +6,7 @@ import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { TaskBoard } from "@/components/tasks/task-board";
 import { TaskFilters } from "@/components/tasks/task-filters";
 import { TaskList } from "@/components/tasks/task-list";
+import { listClientOptions } from "@/lib/data/clients";
 import { listProjectOptions } from "@/lib/data/projects";
 import { listTasks, toTaskRows } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
@@ -41,9 +42,11 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const userId = session.user.id;
   const today = workspaceToday(workspace);
 
-  const [projects, members] = await Promise.all([
+  const [projects, members, clientOptions] = await Promise.all([
     listProjectOptions(workspace.id),
     getWorkspaceMembers(workspace.id),
+    // Every client for the New task dialog (assigners only).
+    session.permissions.assignTasks ? listClientOptions(workspace.id) : Promise.resolve([]),
   ]);
   const clientProjectIds =
     client === "none"
@@ -97,7 +100,15 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
       <PageHeader
         title={title}
         description={`${rows.length} task${rows.length === 1 ? "" : "s"} in ${workspace.name}`}
-        actions={<NewTaskButton projects={projects} members={memberOptions} workspaceId={workspace.id} selfOnly={canAssign ? null : { userId }} />}
+        actions={
+          <NewTaskButton
+            projects={projects}
+            clients={clientOptions}
+            members={memberOptions}
+            workspaceId={workspace.id}
+            selfOnly={canAssign ? null : { userId }}
+          />
+        }
       />
       <TaskFilters projects={projects} members={memberOptions} clients={clients} />
       {rows.length === 0 ? (

@@ -67,6 +67,35 @@ export function getPermissions(role: UserRole) {
 }
 
 export type Permissions = ReturnType<typeof getPermissions>;
+
+/**
+ * Whether a user may edit a project, mirroring the projects update policy
+ * (migration 020): super admins; admins who own or created it; and admins who
+ * may create projects in that workspace, for any project but the General one.
+ * `mayCreate` is mayCreateProjects for the project's workspace.
+ */
+export function mayEditProject(
+  role: UserRole,
+  userId: string,
+  project: { ownerId: string | null; createdBy: string | null; isDefault: boolean },
+  mayCreate: boolean,
+) {
+  if (role === "SUPER_ADMIN") return true;
+  if (role !== "ADMIN") return false;
+  return project.ownerId === userId || project.createdBy === userId || (mayCreate && !project.isDefault);
+}
+
+/**
+ * Whether a user may create projects in a workspace, mirroring
+ * `private.can_create_project` (002): a super admin who is a member, or an
+ * admin whose membership has `can_create_projects`. `membership` is the
+ * user's own row in that workspace, or null when they are not a member.
+ */
+export function mayCreateProjects(role: UserRole, membership: { canCreateProjects: boolean } | null) {
+  if (!membership) return false;
+  if (role === "SUPER_ADMIN") return true;
+  return role === "ADMIN" && membership.canCreateProjects;
+}
 export type Permission = keyof Permissions;
 
 /**

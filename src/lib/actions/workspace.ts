@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 import { isRole, type UserRole } from "@/lib/auth/roles";
 import { WORKSPACE_COOKIE } from "@/lib/data/workspace";
 
-import { NOT_PERMITTED, cleanText, dbError, fail, getActor, isUuid, ok, type ActionResult } from "./shared";
+import { NOT_PERMITTED, cleanText, dbError, fail, getActor, isUuid, logGuardRefusal, ok, type ActionResult } from "./shared";
 
 /** Stores the preferred workspace. Only a view preference; RLS enforces access. */
 export async function switchWorkspace(workspaceId: string): Promise<ActionResult> {
@@ -121,6 +121,7 @@ export async function updateMemberProfile(userId: string, update: MemberUpdate):
   if (update.team !== undefined) patch.team = cleanText(update.team, 100);
 
   const { data, error } = await actor.supabase.from("profiles").update(patch).eq("id", userId).select("id");
+  logGuardRefusal("update_member_profile", actor.userId, userId, error);
   if (error) return fail(dbError(error, "Could not update the user."));
   if (!data.length) return fail(NOT_PERMITTED);
   refresh();

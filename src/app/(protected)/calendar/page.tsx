@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/app/page-header";
 import { CalendarView, type CalendarItem } from "@/components/calendar/calendar-view";
 import { CalendarFilters } from "@/components/calendar/calendar-filters";
+import { listClientOptions } from "@/lib/data/clients";
 import { listProjectOptions } from "@/lib/data/projects";
 import { listTasks } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
@@ -70,7 +71,11 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     label = new Date(`${anchor}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   }
 
-  const [projects, members] = await Promise.all([listProjectOptions(workspace.id), getWorkspaceMembers(workspace.id)]);
+  const [projects, members, clientOptions] = await Promise.all([
+    listProjectOptions(workspace.id),
+    getWorkspaceMembers(workspace.id),
+    session.permissions.assignTasks ? listClientOptions(workspace.id) : Promise.resolve([]),
+  ]);
   const clientProjectIds =
     client === "none"
       ? projects.filter((p) => !p.clientId).map((p) => p.id)
@@ -184,6 +189,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
         workspaceId={workspace.id}
         selfOnly={session.permissions.assignTasks ? null : { userId: session.user.id }}
         projects={projects}
+        clients={clientOptions}
         members={memberOptions}
       />
     </>

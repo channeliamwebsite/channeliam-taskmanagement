@@ -7,6 +7,7 @@ import { MeetingLinksCard } from "@/components/app/meeting-links-card";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { TaskList } from "@/components/tasks/task-list";
 import { listMeetingLinks, meetingsForPerson } from "@/lib/data/meetings";
+import { listClientOptions } from "@/lib/data/clients";
 import { listProjectOptions } from "@/lib/data/projects";
 import { isCarriedForward, listTasks, toTaskRows, type TaskSummary } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
@@ -34,11 +35,12 @@ export default async function MyDayPage() {
   const today = workspaceToday(workspace);
   const tomorrow = addDaysISO(today, 1);
   const canAssign = session.permissions.assignTasks;
-  const [tasks, meetings, projects, members] = await Promise.all([
+  const [tasks, meetings, projects, members, clientOptions] = await Promise.all([
     listTasks({ workspaceId: workspace.id, assigneeId: session.user.id }),
     listMeetingLinks(workspace.id, { activeOnly: true }),
     canAssign ? listProjectOptions(workspace.id) : Promise.resolve([]),
     canAssign ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),
+    canAssign ? listClientOptions(workspace.id) : Promise.resolve([]),
   ]);
   const memberOptions = members.map((m) => ({
     userId: m.userId,
@@ -79,6 +81,7 @@ export default async function MyDayPage() {
         actions={
           <NewTaskButton
             projects={projects}
+            clients={clientOptions}
             members={memberOptions}
             workspaceId={workspace.id}
             selfOnly={canAssign ? null : { userId: session.user.id }}

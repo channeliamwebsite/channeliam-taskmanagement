@@ -24,6 +24,16 @@ function field(value: Json | null, key: string): string | null {
   return null;
 }
 
+const PROJECT_FIELD_LABELS: Record<string, string> = {
+  name: "name",
+  client_id: "client",
+  owner_id: "owner",
+  priority: "priority",
+  start_date: "start date",
+  due_date: "due date",
+  description_changed: "description",
+};
+
 function detail(item: ActivityItem, names: Map<string, string>): string | null {
   switch (item.action) {
     case "STATUS_CHANGED": {
@@ -45,6 +55,16 @@ function detail(item: ActivityItem, names: Map<string, string>): string | null {
     case "TASK_ASSIGNED": {
       const id = field(item.newValue, "user_id");
       return id ? (names.get(id) ?? "a teammate") : null;
+    }
+    case "TASK_REASSIGNED": {
+      const id = field(item.newValue, "user_id");
+      return id ? `primary: ${names.get(id) ?? "a teammate"}` : null;
+    }
+    case "PROJECT_UPDATED": {
+      // Changed field names only; the values are in the audit record.
+      const keys = item.newValue && typeof item.newValue === "object" && !Array.isArray(item.newValue) ? Object.keys(item.newValue) : [];
+      const labels = keys.map((k) => PROJECT_FIELD_LABELS[k] ?? k);
+      return labels.length ? `(${labels.join(", ")})` : null;
     }
     case "TASK_UNASSIGNED": {
       const id = field(item.oldValue, "user_id");

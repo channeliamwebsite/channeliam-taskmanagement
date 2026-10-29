@@ -115,6 +115,7 @@ export default async function DashboardPage() {
         team={team}
         projectOptions={projectOptions}
         meetingCard={meetingCard}
+        clientOptions={clients.map((c) => ({ id: c.id, name: c.name }))}
         clients={canCreate ? clients.map((c) => ({ id: c.id, name: c.name })) : null}
       />
     );
@@ -445,6 +446,8 @@ type AdminProps = Props & {
   team: Awaited<ReturnType<typeof loadTeamToday>>;
   projectOptions: Awaited<ReturnType<typeof listProjectOptions>>;
   meetingCard: ReactNode;
+  /** Every client of the workspace, for the New task dialog. */
+  clientOptions: { id: string; name: string }[];
   /** Clients for Add project; null when the admin may not create projects in this workspace. */
   clients: { id: string; name: string }[] | null;
 };
@@ -493,7 +496,7 @@ function TaskLine({
  * Admin: personal work and work handed out to others, side by side; team
  * progress below. Creating a task uses the existing New task dialog.
  */
-function AdminDashboard({ session, workspace, tasks, projects, members, today, name, team, projectOptions, meetingCard, clients }: AdminProps) {
+function AdminDashboard({ session, workspace, tasks, projects, members, today, name, team, projectOptions, meetingCard, clientOptions, clients }: AdminProps) {
   const me = session.user.id;
   const handedOut = (t: TaskSummary) =>
     (t.createdBy === me || t.assignees.some((a) => a.assignedBy === me)) && t.assignees.some((a) => a.userId !== me);
@@ -529,7 +532,7 @@ function AdminDashboard({ session, workspace, tasks, projects, members, today, n
         description={`${ROLE_LABELS[session.profile.role]} · ${workspace.name}`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <NewTaskButton projects={projectOptions} members={memberOptions} workspaceId={workspace.id} size="sm" />
+            <NewTaskButton projects={projectOptions} clients={clientOptions} members={memberOptions} workspaceId={workspace.id} size="sm" />
             {clients ? (
               <ProjectFormButton
                 mode="create"

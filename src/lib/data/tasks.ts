@@ -6,6 +6,7 @@ import type { Session } from "@/lib/auth/dal";
 import { formatDateTime, priorityTarget, todayISO, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
 import { isCarriedForward as isCarriedForwardPure, taskFlags as taskFlagsPure } from "@/lib/scheduling";
 import { createClient } from "@/lib/supabase/server";
+import { canManageTaskAs } from "@/lib/task-permissions";
 import { PAGE_SIZE as PAGE_LIMIT, assigneeFilters, chunk, fetchAllPages, sortTaskRows, type TaskSort } from "@/lib/task-query";
 import { loadError } from "./errors";
 
@@ -292,13 +293,13 @@ export const getTask = cache(async (taskId: string, session: Session): Promise<T
   const summary = toSummary(row, counts);
   const userId = session.user.id;
   const role = session.profile.role;
-  const involved =
-    row.created_by === userId ||
-    row.projectInfo?.owner_id === userId ||
-    row.projectInfo?.created_by === userId ||
-    summary.assignees.some((a) => a.userId === userId || a.assignedBy === userId);
   // Mirrors private.can_manage_task (the database remains authoritative).
-  const canManage = role === "SUPER_ADMIN" || (role === "ADMIN" && involved);
+  const canManage = canManageTaskAs(role, userId, {
+    createdBy: row.created_by,
+    projectOwnerId: row.projectInfo?.owner_id ?? null,
+    projectCreatedBy: row.projectInfo?.created_by ?? null,
+    assignees: summary.assignees,
+  });
   const isAssignee = summary.assignees.some((a) => a.userId === userId);
 
   return {

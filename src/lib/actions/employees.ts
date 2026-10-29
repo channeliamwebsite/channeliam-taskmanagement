@@ -6,7 +6,7 @@ import { headers } from "next/headers";
 import { addEmployee, inviteAcceptUrl, validateEmployeeInput, type AddEmployeeResult, type Delivery, type EmployeeInput } from "@/lib/employee-workflow";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-import { NOT_PERMITTED, dbError, fail, getActor, isUuid, ok, type ActionResult } from "./shared";
+import { NOT_PERMITTED, dbError, fail, getActor, isUuid, logGuardRefusal, ok, type ActionResult } from "./shared";
 
 // Employee management for super admins. Supabase Auth admin calls (create /
 // invite / block sign-in) need the service-role client, which never leaves the
@@ -109,7 +109,7 @@ export async function createEmployee(request: AddEmployeeRequest): Promise<Actio
       async addMembership(userId) {
         const { error } = await actor.supabase
           .from("workspace_members")
-          .insert({ workspace_id: workspaceId, user_id: userId, can_create_projects: false });
+          .insert({ workspace_id: workspaceId, user_id: userId });
         return error && error.code !== "23505" ? dbError(error) : null;
       },
       async applyProfile(userId, value) {
@@ -124,6 +124,7 @@ export async function createEmployee(request: AddEmployeeRequest): Promise<Actio
           })
           .eq("id", userId)
           .select("id");
+        logGuardRefusal("apply_employee_profile", actor.userId, userId, error);
         if (error) return dbError(error);
         return data.length ? null : "You don't have permission to do that.";
       },
@@ -191,6 +192,7 @@ export async function setEmployeeActive(userId: string, active: boolean): Promis
 
   if (!active) {
     const { data, error } = await actor.supabase.from("profiles").update({ is_active: false }).eq("id", userId).select("id");
+    logGuardRefusal("deactivate_employee", actor.userId, userId, error);
     if (error) return fail(dbError(error, "Could not update the employee."));
     if (!data.length) return fail(NOT_PERMITTED);
     refresh();
@@ -226,7 +228,7 @@ export async function setWorkspaceAccess(workspaceId: string, userId: string, me
   if (!member && userId === actor.userId) return fail("You cannot remove yourself.");
 
   if (member) {
-    const { error } = await actor.supabase.from("workspace_members").insert({ workspace_id: workspaceId, user_id: userId, can_create_projects: false });
+    const { error } = await actor.supabase.from("workspace_members").insert({ workspace_id: workspaceId, user_id: userId });
     if (error && error.code !== "23505") return fail(dbError(error));
   } else {
     const { data, error } = await actor.supabase.from("workspace_members").delete().eq("workspace_id", workspaceId).eq("user_id", userId).select("id");

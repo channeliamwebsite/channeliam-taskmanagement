@@ -60,6 +60,22 @@ select throws_ok($$
   values ('f2000000-0000-0000-0000-000000000002', 'Foreign workspace', 'c2000000-0000-0000-0000-000000000002',
           'a2222222-2222-2222-2222-222222222222')
 $$, '42501', null, 'permitted admin cannot add a project to another workspace''s client');
+-- The same admin with project creation turned off is refused for this client too.
+reset role;
+update public.workspace_members set can_create_projects = false
+where workspace_id = 'f1000000-0000-0000-0000-000000000001' and user_id = 'a2222222-2222-2222-2222-222222222222';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a2222222-2222-2222-2222-222222222222","role":"authenticated"}';
+select throws_ok($$
+  insert into public.projects (workspace_id, name, client_id, created_by)
+  values ('f1000000-0000-0000-0000-000000000001', 'Not permitted', 'c1000000-0000-0000-0000-000000000001',
+          'a2222222-2222-2222-2222-222222222222')
+$$, '42501', null, 'admin without can_create_projects cannot add a project to a client');
+reset role;
+update public.workspace_members set can_create_projects = true
+where workspace_id = 'f1000000-0000-0000-0000-000000000001' and user_id = 'a2222222-2222-2222-2222-222222222222';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a2222222-2222-2222-2222-222222222222","role":"authenticated"}';
 -- Adding a project from a client's page (client preselected).
 select lives_ok($$
   insert into public.projects (workspace_id, name, client_id, client_name, created_by)
@@ -81,10 +97,11 @@ select throws_ok($$
           'a4444444-4444-4444-4444-444444444444')
 $$, '42501', null, 'another workspace''s super admin cannot add a project to this client');
 set local request.jwt.claims to '{"sub":"a2222222-2222-2222-2222-222222222222","role":"authenticated"}';
-delete from public.clients where id = 'c1000000-0000-0000-0000-000000000001';
+select throws_ok($$ delete from public.clients where id = 'c1000000-0000-0000-0000-000000000001' $$,
+  '23503', null, 'an admin cannot delete a client that still has projects (014)');
 reset role;
 select is((select count(*)::int from public.clients where id = 'c1000000-0000-0000-0000-000000000001'), 1,
-          'admin delete of a client is filtered (super admin only)');
+          'the client still exists after the refused deletion');
 set local role authenticated;
 
 -- ---------------------------------------------------------------------------

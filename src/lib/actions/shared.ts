@@ -39,6 +39,8 @@ const SAFE_DB_MESSAGES = [
   "Project owner must be an active member",
   "Only a super admin can change",
   "Super admins cannot change their own role",
+  "At least one active super admin must remain",
+  "You can only add subtasks to tasks you manage",
   "A task cannot be moved to another project",
   "Task dependencies cannot contain cycles",
   "Reporting lines cannot contain cycles",
@@ -49,6 +51,17 @@ const SAFE_DB_MESSAGES = [
   "permission to remove some assignees",
   "The default General project cannot be deleted",
 ];
+
+/**
+ * A refused change is rolled back, so it leaves no activity_logs entry (017).
+ * Refusals by the last-super-admin guard (015) are written to the server log
+ * instead, with ids only.
+ */
+export function logGuardRefusal(action: string, actorId: string, targetId: string, error: PostgrestError | null) {
+  if (error?.message?.includes("At least one active super admin must remain")) {
+    console.warn("[audit] refused", JSON.stringify({ action, actorId, targetId, reason: "last_active_super_admin" }));
+  }
+}
 
 /** Maps a database error to a user-facing message without leaking SQL details. */
 export function dbError(error: PostgrestError | null, fallback = "Something went wrong. Please try again.") {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { getPermissions, hasMinimumRole, hasRole, isRole, ROUTE_ROLES } from "./roles.ts";
+import { getPermissions, hasMinimumRole, hasRole, isRole, mayCreateProjects, mayEditProject, ROUTE_ROLES } from "./roles.ts";
 import { DEFAULT_AUTHENTICATED_ROUTE, isPublicRoute, requiresAuth, safeRedirectPath } from "./routes.ts";
 import { validateLogin, validateNewPassword } from "./validation.ts";
 
@@ -61,6 +61,28 @@ describe("roles and permissions", () => {
     assert.equal(getPermissions("ADMIN").manageUsers, false);
     assert.equal(getPermissions("ADMIN").manageSystemSettings, false);
     assert.equal(getPermissions("SUPER_ADMIN").manageUsers, true);
+  });
+
+  it("lets super admins and permitted admins create projects in their own workspaces only", () => {
+    const allowed = { canCreateProjects: true };
+    const notAllowed = { canCreateProjects: false };
+    assert.equal(mayCreateProjects("SUPER_ADMIN", notAllowed), true);
+    assert.equal(mayCreateProjects("ADMIN", allowed), true);
+    assert.equal(mayCreateProjects("ADMIN", notAllowed), false);
+    assert.equal(mayCreateProjects("INDIVIDUAL", allowed), false);
+    // Not a member of the workspace: refused for every role, as in RLS.
+    assert.equal(mayCreateProjects("SUPER_ADMIN", null), false);
+    assert.equal(mayCreateProjects("ADMIN", null), false);
+  });
+
+  it("lets super admins, owners/creators and project-managing admins edit projects", () => {
+    const bySa = { ownerId: null, createdBy: "sa", isDefault: false };
+    assert.equal(mayEditProject("SUPER_ADMIN", "sa2", bySa, false), true);
+    assert.equal(mayEditProject("ADMIN", "ad", bySa, true), true, "a super admin's project, admin may manage projects");
+    assert.equal(mayEditProject("ADMIN", "ad", bySa, false), false, "restricted admin, not owner");
+    assert.equal(mayEditProject("ADMIN", "ad", { ...bySa, ownerId: "ad" }, false), true, "restricted admin who owns it");
+    assert.equal(mayEditProject("ADMIN", "ad", { ...bySa, isDefault: true }, true), false, "the General project");
+    assert.equal(mayEditProject("INDIVIDUAL", "iv", { ...bySa, ownerId: "iv", createdBy: "iv" }, true), false);
   });
 
   it("restricts /team to admins and above", () => {

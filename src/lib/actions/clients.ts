@@ -46,7 +46,7 @@ const CLIENT_HAS_PROJECTS = (n?: number) =>
 export async function getClientDeletionImpact(clientId: string): Promise<ActionResult<{ projects: { id: string; name: string }[] }>> {
   const actor = await getActor();
   if (!actor.ok) return actor;
-  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can delete clients.");
+  if (actor.profile.role === "INDIVIDUAL") return fail("Only admins can delete clients.");
   if (!isUuid(clientId)) return fail("Invalid client.");
   const { data: client } = await actor.supabase.from("clients").select("id").eq("id", clientId).maybeSingle();
   if (!client) return fail(NOT_PERMITTED);
@@ -58,12 +58,13 @@ export async function getClientDeletionImpact(clientId: string): Promise<ActionR
 /**
  * Deletion policy: a client is deleted only when no project belongs to it.
  * Projects are never deleted or detached as a side effect; move or delete them
- * first. The database enforces the same rule (migration 014). RLS: super admins.
+ * first. The database enforces the same rule (migration 014). RLS: super admins
+ * and admins of the client's workspace (004, 019).
  */
 export async function deleteClient(clientId: string): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;
-  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can delete clients.");
+  if (actor.profile.role === "INDIVIDUAL") return fail("Only admins can delete clients.");
   if (!isUuid(clientId)) return fail("Invalid client.");
   const { supabase } = actor;
 

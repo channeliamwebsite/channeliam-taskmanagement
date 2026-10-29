@@ -65,3 +65,11 @@ export async function listClients(workspaceId: string, opts: { withContacts?: bo
     isActive: c.is_active,
   }));
 }
+
+/** Client choices for the task dialog: every client of the workspace (RLS-scoped), names only. */
+export async function listClientOptions(workspaceId: string): Promise<{ id: string; name: string }[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("clients").select("id, name").eq("workspace_id", workspaceId).order("name");
+  if (error) throw loadError("Failed to load clients", error);
+  return data;
+}

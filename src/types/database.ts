@@ -90,6 +90,111 @@ export type Database = {
           },
         ]
       }
+      attendance_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          details: Json
+          id: number
+          record_id: string | null
+          record_type: string
+          target_user_id: string | null
+          workspace_id: string | null
+        }
+        ComputedFields: never
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: never
+          record_id?: string | null
+          record_type: string
+          target_user_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: never
+          record_id?: string | null
+          record_type?: string
+          target_user_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_audit_log_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_audit_log_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_sessions: {
+        Row: {
+          check_in_at: string
+          check_out_at: string | null
+          created_at: string
+          id: string
+          user_id: string
+          work_date: string
+          workspace_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          check_in_at?: string
+          check_out_at?: string | null
+          created_at?: string
+          id?: string
+          user_id: string
+          work_date: string
+          workspace_id: string
+        }
+        Update: {
+          check_in_at?: string
+          check_out_at?: string | null
+          created_at?: string
+          id?: string
+          user_id?: string
+          work_date?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bug_reports: {
         Row: {
           created_at: string
@@ -1043,6 +1148,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      attendance_check_in: { Args: { p_workspace_id: string }; Returns: string }
+      attendance_check_out: { Args: Record<PropertyKey, never>; Returns: string }
       create_task: {
         Args: {
           p_assignee_ids: string[]

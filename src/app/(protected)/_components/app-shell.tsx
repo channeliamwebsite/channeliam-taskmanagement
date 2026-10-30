@@ -56,6 +56,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
       ...(role === "INDIVIDUAL" ? [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" } as NavItem] : []),
       { href: "/tasks", label: "My Tasks", icon: "tasks" },
       { href: "/calendar", label: "Calendar", icon: "calendar" },
+      // Everyone records their own attendance, super admins included.
+      { href: "/attendance", label: "Attendance", icon: "attendance" },
       { href: "/inbox", label: "Inbox", icon: "inbox", badge: notifications.unread },
       ...(permissions.viewTeamReports ? [] : [{ href: "/reports", label: "Daily Update", icon: "reports" } as NavItem]),
     ],

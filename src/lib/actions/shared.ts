@@ -50,6 +50,9 @@ const SAFE_DB_MESSAGES = [
   "permission to assign this task",
   "permission to remove some assignees",
   "The default General project cannot be deleted",
+  "You are already checked in",
+  "You are not checked in",
+  "You can only record attendance in a workspace you belong to",
 ];
 
 /**

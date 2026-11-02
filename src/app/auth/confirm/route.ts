@@ -30,8 +30,11 @@ export async function GET(request: NextRequest) {
       url.pathname = SET_PASSWORD_ROUTE;
       return NextResponse.redirect(url, { status: 303 });
     }
+    // Supabase Auth answers expired, already-used and unknown tokens alike
+    // (otp_expired, "invalid or has expired"), so every rejection here is
+    // reported as "expired or already used".
     url.pathname = LOGIN_ROUTE;
-    url.searchParams.set("error", confirmErrorCode(link.type, error.code === "otp_expired"));
+    url.searchParams.set("error", confirmErrorCode(link.type, true));
     return NextResponse.redirect(url, { status: 303 });
   }
 

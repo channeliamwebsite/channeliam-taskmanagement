@@ -28,7 +28,7 @@ const require = createRequire(import.meta.url);
 const { createClient } = require("@supabase/supabase-js");
 
 const port = /^\s*port\s*=\s*(\d+)/m.exec(readFileSync("supabase/config.toml", "utf8"))?.[1];
-const status = spawnSync("npx", ["supabase", "status", "-o", "env"], { encoding: "utf8", shell: true });
+const status = spawnSync("npx supabase status -o env", { encoding: "utf8", shell: true });
 const env = Object.fromEntries([...status.stdout.matchAll(/^([A-Z_]+)="?([^"\n]*)"?$/gm)].map((m) => [m[1], m[2]]));
 const API = env.API_URL;
 if (!port || API !== `http://127.0.0.1:${port}` || !env.ANON_KEY || !env.SERVICE_ROLE_KEY) {
@@ -127,9 +127,14 @@ try {
     const cookies = res.headers.getSetCookie?.() ?? [];
     check("/auth/confirm accepts a reset link and opens Choose a password", res.status === 303 && new URL(location, APP).pathname === "/auth/set-password", `${res.status} ${location}`);
     check("and sets the session cookie", cookies.some((c) => /sb-.*-auth-token/.test(c)));
+    // Supabase Auth reports an unknown token like an expired one (otp_expired).
     const bad = await fetch(`${APP}/auth/confirm?token_hash=not-a-real-token&type=recovery`, { redirect: "manual" });
     const badLoc = new URL(bad.headers.get("location") ?? "/", APP);
-    check("a bad reset link goes to sign-in with the reset error", badLoc.pathname === "/login" && badLoc.searchParams.get("error") === "reset_invalid", badLoc.search);
+    check("a rejected reset link goes to sign-in with 'expired or already used'", badLoc.pathname === "/login" && badLoc.searchParams.get("error") === "reset_expired", badLoc.search);
+    const reused = await fetch(`${APP}/auth/confirm?token_hash=${encodeURIComponent(fresh.data.properties.hashed_token)}&type=recovery`, { redirect: "manual" });
+    check("the same reset link cannot be used twice", new URL(reused.headers.get("location") ?? "/", APP).searchParams.get("error") === "reset_expired");
+    const malformed = await fetch(`${APP}/auth/confirm?type=recovery`, { redirect: "manual" });
+    check("an incomplete reset link says so", new URL(malformed.headers.get("location") ?? "/", APP).searchParams.get("error") === "reset_invalid");
     const expired = await fetch(`${APP}/auth/confirm?error=access_denied&error_code=otp_expired&type=invite`, { redirect: "manual" });
     check("an expired invitation says so", new URL(expired.headers.get("location") ?? "/", APP).searchParams.get("error") === "invite_expired");
   } else {

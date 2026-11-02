@@ -16,10 +16,10 @@ import { validateLogin, type LoginFieldErrors } from "@/lib/auth/validation";
 const URL_ERRORS: Record<string, string> = {
   account_inactive: "Your account has been deactivated. Contact an administrator.",
   profile_missing: "Your account is not set up yet. Contact an administrator.",
-  link_invalid: "That invitation link is invalid or has already been used. Ask your administrator for a new one.",
-  invite_expired: "That invitation link has expired. Ask your administrator for a new one.",
-  reset_invalid: "That password reset link is invalid or has already been used. Request a new one below.",
-  reset_expired: "That password reset link has expired. Request a new one below.",
+  link_invalid: "That invitation link is incomplete. Open it again from the email, or ask your administrator for a new one.",
+  invite_expired: "That invitation link has expired or has already been used. Ask your administrator for a new one.",
+  reset_invalid: "That password reset link is incomplete. Open it again from the email, or request a new one below.",
+  reset_expired: "That password reset link has expired or has already been used. Request a new one below.",
 };
 
 export function LoginForm() {

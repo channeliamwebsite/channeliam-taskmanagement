@@ -30,7 +30,11 @@ export function parseConfirmRequest(params: URLSearchParams): ConfirmRequest {
   return { kind: "error", type, expired: false };
 }
 
-/** The ?error= value /login shows for a link that could not be used. */
+/**
+ * The ?error= value /login shows for a link that could not be used: "expired"
+ * covers every link Supabase Auth rejected (expired, already used or unknown;
+ * it reports them the same way), "invalid" a link that is incomplete or malformed.
+ */
 export function confirmErrorCode(type: AuthLinkType, expired: boolean): string {
   if (type === "invite") return expired ? "invite_expired" : "link_invalid";
   return expired ? "reset_expired" : "reset_invalid";

@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildReportRoster, firstSubmissionTime, readEveningSnapshot, reportTaskLabel, updatedAfterSubmission, type RosterMember } from "./report-history.ts";
+import {
+  buildHistoryEntry,
+  buildReportRoster,
+  firstSubmissionTime,
+  historyMonth,
+  historyNavigation,
+  historyRange,
+  readEveningSnapshot,
+  reportTaskLabel,
+  updatedAfterSubmission,
+  type HistoryReportRow,
+  type RosterMember,
+} from "./report-history.ts";
 
 const m = (userId: string, o: Partial<RosterMember> = {}): RosterMember => ({ userId, isActive: true, managerId: null, team: null, ...o });
 const SA = { userId: "sa", role: "SUPER_ADMIN" as const, team: null };
@@ -123,5 +135,132 @@ describe("readEveningSnapshot (snapshot first, live lookup as fallback)", () => 
   it("skips malformed task entries instead of failing", () => {
     const s = readEveningSnapshot({ version: 1, tasks: [{ id: "t1" }, null, { id: "t2", title: "Ok", status: "TODO" }] });
     assert.deepEqual(s?.tasks.map((t) => t.id), ["t2"]);
+  });
+});
+
+describe("historyMonth / historyRange (own report history)", () => {
+  const today = "2026-10-30";
+
+  it("accepts a valid past or current month", () => {
+    assert.equal(historyMonth("2026-07", today), "2026-07");
+    assert.equal(historyMonth("2025-12", today), "2025-12");
+    assert.equal(historyMonth("2026-10", today), "2026-10");
+  });
+
+  it("falls back to the current month for invalid input", () => {
+    for (const bad of [undefined, null, "", "2026-13", "2026-00", "2026-7", "26-07", "2026-07-01", ["2026-07"], "x"]) {
+      assert.equal(historyMonth(bad, today), "2026-10", String(bad));
+    }
+  });
+
+  it("never moves past the current month", () => {
+    assert.equal(historyMonth("2026-11", today), "2026-10");
+    assert.equal(historyMonth("2031-01", today), "2026-10");
+  });
+
+  it("covers the whole month, stopping at today for the current one", () => {
+    assert.deepEqual(historyRange("2026-09", today), { first: "2026-09-01", last: "2026-09-30" });
+    assert.deepEqual(historyRange("2024-02", today), { first: "2024-02-01", last: "2024-02-29" });
+    assert.deepEqual(historyRange("2026-10", today), { first: "2026-10-01", last: "2026-10-30" });
+  });
+
+  it("handles year boundaries", () => {
+    assert.deepEqual(historyRange("2025-12", "2026-01-05"), { first: "2025-12-01", last: "2025-12-31" });
+    assert.equal(historyMonth("2026-01", "2025-12-31"), "2025-12");
+  });
+});
+
+describe("historyNavigation", () => {
+  it("links to the previous and next month", () => {
+    assert.deepEqual(historyNavigation("2026-07", "2026-10-30"), { previous: "2026-06", next: "2026-08" });
+  });
+  it("has no next month on the current month", () => {
+    assert.deepEqual(historyNavigation("2026-10", "2026-10-30"), { previous: "2026-09", next: null });
+  });
+  it("crosses year boundaries", () => {
+    assert.deepEqual(historyNavigation("2026-01", "2026-10-30"), { previous: "2025-12", next: "2026-02" });
+    assert.deepEqual(historyNavigation("2025-12", "2026-01-02"), { previous: "2025-11", next: "2026-01" });
+  });
+  it("still offers the current month from the month before it on the first day", () => {
+    assert.deepEqual(historyNavigation("2026-09", "2026-10-01"), { previous: "2026-08", next: "2026-10" });
+  });
+});
+
+describe("buildHistoryEntry", () => {
+  const base: HistoryReportRow = {
+    id: "r1",
+    report_date: "2026-10-20",
+    total_hours: 7.5,
+    tasks_completed: 2,
+    tasks_in_progress: 1,
+    tasks_blocked: 0,
+    morning_plan: "Finish the banner",
+    planned_task_ids: ["t1", "t9"],
+    accomplishments: "Banner done",
+    work_remaining: null,
+    blockers: "  ",
+    tomorrow_plan: "Start the brochure",
+    linked_task_ids: ["t1"],
+    morning_submitted_at: "2026-10-20T04:00:00Z",
+    evening_submitted_at: "2026-10-20T13:00:00Z",
+    updated_at: "2026-10-20T13:00:00Z",
+    evening_snapshot: null,
+  };
+  const titles = new Map([["t1", "Banner"]]);
+  const label = (id: string) => reportTaskLabel(id, titles, false);
+  const status = (s: string) => (s === "COMPLETED" ? "Completed" : s);
+
+  it("uses the evening snapshot when present (migration 009)", () => {
+    const e = buildHistoryEntry(
+      { ...base, evening_snapshot: { version: 1, tasks: [{ id: "t1", title: "Banner (old title)", status: "COMPLETED", completed_at: null }] } },
+      label,
+      status,
+    );
+    assert.equal(e.fromSnapshot, true);
+    assert.deepEqual(e.sections.find((s) => s.label === "Tasks covered (as submitted)"), {
+      label: "Tasks covered (as submitted)",
+      text: "Banner (old title) (Completed)",
+    });
+  });
+
+  it("falls back to linked task ids for reports from before migration 009", () => {
+    const e = buildHistoryEntry(base, label, status);
+    assert.equal(e.fromSnapshot, false);
+    assert.deepEqual(e.sections.find((s) => s.label === "Tasks covered"), { label: "Tasks covered", text: "Banner" });
+  });
+
+  it("labels tasks the person can no longer see without leaking anything", () => {
+    const e = buildHistoryEntry(base, label, status);
+    assert.equal(e.sections.find((s) => s.label === "Planned tasks")?.text, "Banner, (task)");
+  });
+
+  it("leaves out empty and whitespace-only sections, in display order", () => {
+    const e = buildHistoryEntry(base, label, status);
+    assert.deepEqual(
+      e.sections.map((s) => s.label),
+      ["Planned tasks", "Plan notes", "Accomplishments", "Tomorrow's priorities", "Tasks covered"],
+    );
+  });
+
+  it("shows stored counts only once the evening report is submitted", () => {
+    assert.deepEqual(buildHistoryEntry(base, label, status).counts, { completed: 2, notCompleted: 1, blocked: 0 });
+    assert.equal(buildHistoryEntry({ ...base, evening_submitted_at: null }, label, status).counts, null);
+  });
+
+  it("handles a row with nothing submitted (automatic morning snapshot only)", () => {
+    const e = buildHistoryEntry(
+      { ...base, morning_plan: null, planned_task_ids: [], accomplishments: null, tomorrow_plan: null, linked_task_ids: null, morning_submitted_at: null, evening_submitted_at: null, blockers: null, total_hours: 0 },
+      label,
+      status,
+    );
+    assert.deepEqual(e.sections, []);
+    assert.equal(e.counts, null);
+    assert.equal(e.totalHours, 0);
+    assert.equal(e.updatedAt, null);
+  });
+
+  it("reports a later update after submission", () => {
+    assert.equal(buildHistoryEntry({ ...base, updated_at: "2026-10-20T15:00:00Z" }, label, status).updatedAt, "2026-10-20T15:00:00Z");
+    assert.equal(buildHistoryEntry(base, label, status).updatedAt, null);
   });
 });

@@ -7,6 +7,7 @@ import { UserAvatar } from "@/components/app/user-avatar";
 import { StatCard } from "@/components/dashboard/widgets";
 import { DailyReportForm } from "@/components/reports/daily-report-form";
 import { MorningPlanForm } from "@/components/reports/morning-plan-form";
+import { ReportHistoryList } from "@/components/reports/report-history-list";
 import { ReportComparison, type ComparisonRow } from "@/components/reports/report-comparison";
 import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import { summarizeDay } from "@/lib/data/daily-summary";
@@ -14,7 +15,16 @@ import { getTaskTitles, isCarriedForward } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, formatDate, formatDateTime, isTaskStatus, PRIORITY_RANK, TASK_STATUS_LABELS } from "@/lib/domain";
 import { compareReport, hasSubmission, isExpectedReporter, summarizeComparisons } from "@/lib/report-compare";
-import { buildReportRoster, readEveningSnapshot, reportTaskLabel, updatedAfterSubmission } from "@/lib/report-history";
+import {
+  buildHistoryEntry,
+  buildReportRoster,
+  formatReportHours,
+  historyMonth,
+  historyRange,
+  readEveningSnapshot,
+  reportTaskLabel,
+  updatedAfterSubmission,
+} from "@/lib/report-history";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -63,11 +73,7 @@ type ReportRow = {
 const SELECT =
   "id, user_id, report_date, tasks_completed, tasks_in_progress, tasks_blocked, total_hours, accomplishments, blockers, tomorrow_plan, work_remaining, linked_task_ids, morning_plan, planned_task_ids, morning_submitted_at, evening_submitted_at, updated_at, evening_snapshot, reporter_team";
 
-function hours(n: number) {
-  const h = Math.floor(n);
-  const m = Math.round((n - h) * 60);
-  return m ? `${h}h ${m}m` : `${h}h`;
-}
+const hours = formatReportHours;
 
 const selectClass = "h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground";
 
@@ -89,6 +95,45 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   const roleFilter = (get("role") in REPORTING_ROLES ? get("role") : "") as keyof typeof REPORTING_ROLES | "";
   const userId = session.user.id;
   const supabase = await createClient();
+
+  // Full history of the caller's own reports, one month at a time. RLS allows
+  // reading one's own reports; the query is also pinned to the caller and the
+  // active workspace. Super admins do not submit reports, so they have none.
+  if (canSubmit && get("view") === "history") {
+    const month = historyMonth(get("month"), today);
+    const { first, last } = historyRange(month, today);
+    const { data, error } = await supabase
+      .from("daily_reports")
+      .select(SELECT)
+      .eq("workspace_id", workspace.id)
+      .eq("user_id", userId)
+      .gte("report_date", first)
+      .lte("report_date", last)
+      .order("report_date", { ascending: false });
+    if (error) throw loadError("Failed to load your report history", error);
+    const history = data as unknown as ReportRow[];
+    const titles = await getTaskTitles(history.flatMap((r) => [...(r.planned_task_ids ?? []), ...(r.linked_task_ids ?? [])]));
+    const label = (id: string) => reportTaskLabel(id, titles, false);
+    const statusLabel = (s: string) => (isTaskStatus(s) ? TASK_STATUS_LABELS[s] : s);
+    return (
+      <>
+        <PageHeader
+          title="Report history"
+          description={`Your morning plans and evening reports in ${workspace.name}.`}
+          actions={
+            <Link href="/reports" className="inline-flex h-8 items-center rounded-lg border px-3 text-sm hover:bg-muted">
+              Back to today
+            </Link>
+          }
+        />
+        <ReportHistoryList
+          month={month}
+          today={today}
+          entries={history.map((r) => buildHistoryEntry(r, label, statusLabel))}
+        />
+      </>
+    );
+  }
 
   const [mineRes, teamRes, day, members] = await Promise.all([
     canSubmit
@@ -268,7 +313,14 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
               />
             </Section>
           </div>
-          <Section title="Your recent reports">
+          <Section
+            title="Your recent reports"
+            action={
+              <Link href="/reports?view=history" className="text-xs text-muted-foreground hover:text-foreground hover:underline">
+                View full history
+              </Link>
+            }
+          >
             {mine.length === 0 ? (
               <p className="text-sm text-muted-foreground">You haven&apos;t submitted a report yet.</p>
             ) : (

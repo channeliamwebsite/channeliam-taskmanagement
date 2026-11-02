@@ -116,18 +116,17 @@ function Brand() {
   );
 }
 
-export function Sidebar({ sections, workspaceSwitcher, footer }: { sections: NavSection[]; workspaceSwitcher: ReactNode; footer?: ReactNode }) {
+export function Sidebar({ sections, workspaceSwitcher }: { sections: NavSection[]; workspaceSwitcher: ReactNode }) {
   return (
     <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r bg-muted/30 px-3 py-4 lg:flex">
       <Brand />
       {workspaceSwitcher}
       <NavLinks sections={sections} />
-      {footer}
     </aside>
   );
 }
 
-export function MobileNav({ sections, workspaceSwitcher, footer }: { sections: NavSection[]; workspaceSwitcher: ReactNode; footer?: ReactNode }) {
+export function MobileNav({ sections, workspaceSwitcher }: { sections: NavSection[]; workspaceSwitcher: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -142,7 +141,6 @@ export function MobileNav({ sections, workspaceSwitcher, footer }: { sections: N
           </SheetHeader>
           {workspaceSwitcher}
           <NavLinks sections={sections} onNavigate={() => setOpen(false)} />
-          {footer}
         </SheetContent>
       </Sheet>
     </>

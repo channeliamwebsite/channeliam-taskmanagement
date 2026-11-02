@@ -1,5 +1,6 @@
 // Pure rules for showing historical daily reports (no I/O, unit-tested).
 
+import { addMonths, monthRange, parseMonth } from "./attendance.ts";
 import type { UserRole } from "./auth/roles.ts";
 
 export type RosterMember = {
@@ -99,4 +100,109 @@ export function readEveningSnapshot(value: unknown): EveningSnapshot | null {
     reporterTeam: typeof v.reporter_team === "string" ? v.reporter_team : null,
     tasks,
   };
+}
+
+/**
+ * Month shown in a person's own report history: a valid "YYYY-MM" no later
+ * than the current month, otherwise the current month (future months have no
+ * reports, and an invalid value must not break the page).
+ */
+export function historyMonth(value: unknown, today: string): string {
+  const month = parseMonth(value, today);
+  return month > today.slice(0, 7) ? today.slice(0, 7) : month;
+}
+
+/** Previous and next month links for the history view; no next month after the current one. */
+export function historyNavigation(month: string, today: string): { previous: string; next: string | null } {
+  const next = addMonths(month, 1);
+  return { previous: addMonths(month, -1), next: next > today.slice(0, 7) ? null : next };
+}
+
+/** First and last day of a history month, never past today. */
+export function historyRange(month: string, today: string): { first: string; last: string } {
+  const { first, last } = monthRange(month);
+  return { first, last: last > today ? today : last };
+}
+
+export type HistoryReportRow = {
+  id: string;
+  report_date: string;
+  total_hours: number;
+  tasks_completed: number;
+  tasks_in_progress: number;
+  tasks_blocked: number;
+  morning_plan: string | null;
+  planned_task_ids: string[] | null;
+  accomplishments: string | null;
+  work_remaining: string | null;
+  blockers: string | null;
+  tomorrow_plan: string | null;
+  linked_task_ids: string[] | null;
+  morning_submitted_at: string | null;
+  evening_submitted_at: string | null;
+  updated_at: string;
+  evening_snapshot: unknown;
+};
+
+export type HistoryEntry = {
+  id: string;
+  date: string;
+  totalHours: number;
+  morningSubmittedAt: string | null;
+  eveningSubmittedAt: string | null;
+  /** Saved again after its latest first submission; the latest content is shown. */
+  updatedAt: string | null;
+  /** Counts stored with the evening report; null until it is submitted. */
+  counts: { completed: number; notCompleted: number; blocked: number } | null;
+  /** True when the tasks come from the evening snapshot (migration 009). */
+  fromSnapshot: boolean;
+  /** Labelled sections with text, in display order; empty ones are left out. */
+  sections: { label: string; text: string }[];
+};
+
+/**
+ * One day of a person's own history. Evening reports submitted through
+ * submit_evening_report (009) list their tasks as they were then; older
+ * reports have no snapshot and fall back to the linked task ids, labelled by
+ * `taskLabel` (current titles, or a placeholder for tasks no longer visible).
+ */
+export function buildHistoryEntry(row: HistoryReportRow, taskLabel: (id: string) => string, statusLabel: (status: string) => string): HistoryEntry {
+  const snapshot = readEveningSnapshot(row.evening_snapshot);
+  const planned = row.planned_task_ids?.length ? row.planned_task_ids.map(taskLabel).join(", ") : null;
+  const covered = snapshot
+    ? snapshot.tasks.map((t) => `${t.title} (${statusLabel(t.status)})`).join(", ") || null
+    : row.linked_task_ids?.length
+      ? row.linked_task_ids.map(taskLabel).join(", ")
+      : null;
+  const sections = (
+    [
+      ["Planned tasks", planned],
+      ["Plan notes", row.morning_plan],
+      ["Accomplishments", row.accomplishments],
+      ["Why incomplete", row.work_remaining],
+      ["Blockers", row.blockers],
+      ["Tomorrow's priorities", row.tomorrow_plan],
+      [snapshot ? "Tasks covered (as submitted)" : "Tasks covered", covered],
+    ] satisfies [string, string | null][]
+  ).flatMap(([label, text]) => (text?.trim() ? [{ label, text }] : []));
+  return {
+    id: row.id,
+    date: row.report_date,
+    totalHours: Number(row.total_hours) || 0,
+    morningSubmittedAt: row.morning_submitted_at,
+    eveningSubmittedAt: row.evening_submitted_at,
+    updatedAt: updatedAfterSubmission(row.updated_at, row.morning_submitted_at, row.evening_submitted_at) ? row.updated_at : null,
+    counts: row.evening_submitted_at
+      ? { completed: row.tasks_completed, notCompleted: row.tasks_in_progress, blocked: row.tasks_blocked }
+      : null,
+    fromSnapshot: snapshot !== null,
+    sections,
+  };
+}
+
+/** "7h 30m" for the hours stored with a report. */
+export function formatReportHours(n: number): string {
+  const h = Math.floor(n);
+  const m = Math.round((n - h) * 60);
+  return m ? `${h}h ${m}m` : `${h}h`;
 }

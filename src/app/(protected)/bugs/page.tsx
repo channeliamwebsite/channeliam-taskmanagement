@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { EmptyState, PageHeader } from "@/components/app/page-header";
 import { BugStatusSelect } from "@/components/bugs/bug-status-select";
+import { ReportBugButton } from "@/components/bugs/report-bug-button";
 import { BUG_STATUSES, BUG_STATUS_LABELS, displayName, formatDateTime, type BugStatus } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ export default async function BugsPage({ searchParams }: PageProps<"/bugs">) {
       <PageHeader
         title="Bug reports"
         description={isReviewer ? "Reports from everyone in the workspace. Update the status as you triage." : "Bugs you have reported and their status."}
+        actions={<ReportBugButton workspaceId={workspace.id} />}
       />
       <form action="/bugs" className="mb-4 flex flex-wrap items-end gap-2">
         <label className="grid gap-1 text-xs text-muted-foreground">
@@ -78,7 +80,7 @@ export default async function BugsPage({ searchParams }: PageProps<"/bugs">) {
       </form>
 
       {data.length === 0 ? (
-        <EmptyState icon={Bug} title="No bug reports" description="Use “Report a bug” at the bottom of the sidebar to send one." />
+        <EmptyState icon={Bug} title="No bug reports" description="Use “Report a bug” above to send one." />
       ) : (
         <ul className="grid gap-3">
           {data.map((b) => {

@@ -6,8 +6,11 @@ export const DEFAULT_AUTHENTICATED_ROUTE = "/my-day";
 /** Where an accepted invitation lands (requires the session it creates). */
 export const SET_PASSWORD_ROUTE = "/auth/set-password";
 
+/** Request a password reset email (signed out). */
+export const FORGOT_PASSWORD_ROUTE = "/auth/forgot-password";
+
 /** Routes reachable without a session. Everything else requires sign-in. */
-export const PUBLIC_ROUTES = [LOGIN_ROUTE] as const;
+export const PUBLIC_ROUTES = [LOGIN_ROUTE, FORGOT_PASSWORD_ROUTE] as const;
 
 /** Application areas. Listed explicitly so they are easy to audit. */
 export const PROTECTED_ROUTES = [

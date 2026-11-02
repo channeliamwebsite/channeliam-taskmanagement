@@ -1,8 +1,9 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { headers } from "next/headers";
 
+import { authLinkUrl, confirmRedirect, resetRequestError } from "@/lib/auth/email-links";
+import { appOrigin } from "@/lib/auth/origin";
 import { addEmployee, inviteAcceptUrl, validateEmployeeInput, type AddEmployeeResult, type Delivery, type EmployeeInput } from "@/lib/employee-workflow";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -28,14 +29,6 @@ function adminClient() {
 }
 
 const NO_SERVICE_KEY = "Employee accounts can only be managed when SUPABASE_SERVICE_ROLE_KEY is configured on the server.";
-
-async function appOrigin() {
-  const h = await headers();
-  const origin = h.get("origin");
-  if (origin) return origin;
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  return `${h.get("x-forwarded-proto") ?? "https"}://${host}`;
-}
 
 /** Auth errors are shown as Supabase reports them; they carry no secrets. */
 function authError(error: { message?: string } | null, fallback: string) {
@@ -168,6 +161,49 @@ export async function reissueInvite(workspaceId: string, userId: string, deliver
   const { data, error } = await admin.auth.admin.generateLink({ type: "invite", email: user.email });
   if (error || !data.properties?.hashed_token) return fail(`The invite link could not be created: ${authError(error, "unknown error")}`);
   return ok({ link: inviteAcceptUrl(await appOrigin(), data.properties.hashed_token) });
+}
+
+/**
+ * Sends a password reset email to an employee (email), or returns a one-time
+ * reset link to share with them (link). The admin never sees or sets a
+ * password: the link signs the employee in once so they choose their own.
+ * Only for active employees who have accepted their invitation (others get a
+ * new invitation instead), and not for yourself (use Forgot password).
+ */
+export async function sendPasswordReset(workspaceId: string, userId: string, delivery: Delivery): Promise<ActionResult<{ link?: string }>> {
+  const actor = await superAdmin();
+  if (!actor.ok) return actor;
+  if (!isUuid(workspaceId) || !isUuid(userId)) return fail("Invalid request.");
+  if (delivery !== "email" && delivery !== "link") return fail("Choose how to send the reset link.");
+  if (userId === actor.userId) return fail("Use “Forgot password?” on the sign-in page to reset your own password.");
+
+  // Only members of a workspace the caller can see (RLS), and only active ones.
+  const { data: member } = await actor.supabase
+    .from("workspace_members")
+    .select("profile:profiles!workspace_members_user_id_fkey(is_active)")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!member) return fail(NOT_PERMITTED);
+  if (!member.profile?.is_active) return fail("This employee is deactivated. Reactivate them before resetting their password.");
+
+  const admin = adminClient();
+  if (!admin) return fail(NO_SERVICE_KEY);
+  const { data: auth, error: lookupError } = await admin.auth.admin.getUserById(userId);
+  const user = auth.user;
+  if (lookupError || !user?.email) return fail("Could not find that account.");
+  if (!user.email_confirmed_at && !user.last_sign_in_at) return fail("This employee hasn't accepted their invitation yet. Resend the invitation instead.");
+
+  const origin = await appOrigin();
+  console.info("[audit] password reset issued", JSON.stringify({ actorId: actor.userId, targetId: userId, delivery }));
+  if (delivery === "email") {
+    const { error } = await admin.auth.resetPasswordForEmail(user.email, { redirectTo: confirmRedirect(origin) });
+    if (error) return fail(resetRequestError(error) ?? `The reset email could not be sent: ${authError(error, "unknown error")}`);
+    return ok({});
+  }
+  const { data, error } = await admin.auth.admin.generateLink({ type: "recovery", email: user.email });
+  if (error || !data.properties?.hashed_token) return fail(`The reset link could not be created: ${authError(error, "unknown error")}`);
+  return ok({ link: authLinkUrl(origin, data.properties.hashed_token, "recovery") });
 }
 
 /**

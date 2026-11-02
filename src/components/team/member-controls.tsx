@@ -19,7 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import { createEmployee, reissueInvite, setEmployeeActive, setWorkspaceAccess } from "@/lib/actions/employees";
+import { createEmployee, reissueInvite, sendPasswordReset, setEmployeeActive, setWorkspaceAccess } from "@/lib/actions/employees";
 import { removeMember, setCanCreateClientsProjects, setCanCreateProjects, updateMemberProfile } from "@/lib/actions/workspace";
 import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import type { AddEmployeeResult } from "@/lib/employee-workflow";
@@ -43,11 +43,11 @@ function DepartmentInput({ id, value, onChange, departments }: { id: string; val
   );
 }
 
-function CopyLink({ link }: { link: string }) {
+function CopyLink({ link, kind = "invite" }: { link: string; kind?: "invite" | "reset" }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="grid gap-1.5">
-      <Label htmlFor="invite-link">One-time invite link</Label>
+      <Label htmlFor="invite-link">{kind === "reset" ? "One-time password reset link" : "One-time invite link"}</Label>
       <div className="flex gap-2">
         <Input id="invite-link" readOnly value={link} onFocus={(e) => e.currentTarget.select()} className="h-9 font-mono text-xs" />
         <Button
@@ -65,7 +65,9 @@ function CopyLink({ link }: { link: string }) {
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Share it only with this employee. It signs them in once so they can set a password.</p>
+      <p className="text-xs text-muted-foreground">
+        Share it only with this employee. It signs them in once so they can choose a password{kind === "reset" ? ", and expires in one hour" : ""}.
+      </p>
     </div>
   );
 }
@@ -103,7 +105,7 @@ export function MemberActions({
   const [editOpen, setEditOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [link, setLink] = useState<string | null>(null);
+  const [link, setLink] = useState<{ url: string; kind: "invite" | "reset" } | null>(null);
   const [fullName, setFullName] = useState(member.fullName ?? "");
   const [role, setRole] = useState<UserRole>(member.role);
   const [jobTitle, setJobTitle] = useState(member.jobTitle ?? "");
@@ -163,8 +165,17 @@ export function MemberActions({
     startTransition(async () => {
       const r = await reissueInvite(workspaceId, member.userId, delivery);
       if (!r.ok) toast.error(r.error);
-      else if (r.data.link) setLink(r.data.link);
+      else if (r.data.link) setLink({ url: r.data.link, kind: "invite" });
       else toast.success(`Invitation email sent to ${member.email ?? member.name}`);
+    });
+  }
+
+  function resetPassword(delivery: "email" | "link") {
+    startTransition(async () => {
+      const r = await sendPasswordReset(workspaceId, member.userId, delivery);
+      if (!r.ok) toast.error(r.error);
+      else if (r.data.link) setLink({ url: r.data.link, kind: "reset" });
+      else toast.success(`Password reset email sent to ${member.email ?? member.name}`);
     });
   }
 
@@ -210,6 +221,12 @@ export function MemberActions({
               <>
                 <DropdownMenuItem onClick={() => reissue("email")}>Resend invitation email</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => reissue("link")}>Get invite link</DropdownMenuItem>
+              </>
+            ) : null}
+            {!member.pendingInvite && member.isActive && !isSelf ? (
+              <>
+                <DropdownMenuItem onClick={() => resetPassword("email")}>Send password reset email</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => resetPassword("link")}>Get password reset link</DropdownMenuItem>
               </>
             ) : null}
             {!isSelf ? (
@@ -304,10 +321,10 @@ export function MemberActions({
       <Dialog open={link !== null} onOpenChange={(open) => !open && setLink(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Invite link for {member.name}</DialogTitle>
+            <DialogTitle>{link?.kind === "reset" ? `Password reset link for ${member.name}` : `Invite link for ${member.name}`}</DialogTitle>
             <DialogDescription>No email was sent.</DialogDescription>
           </DialogHeader>
-          {link ? <CopyLink link={link} /> : null}
+          {link ? <CopyLink link={link.url} kind={link.kind} /> : null}
         </DialogContent>
       </Dialog>
 

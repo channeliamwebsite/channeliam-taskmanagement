@@ -9,6 +9,7 @@ import { ROLE_LABELS } from "@/lib/auth/roles";
 import { MeetingLinksManager } from "@/components/settings/meeting-links-manager";
 import { listMeetingLinks } from "@/lib/data/meetings";
 import { getMyWorkspaces, getWorkspaceMembers } from "@/lib/data/workspace";
+import { displayName } from "@/lib/domain";
 
 import { getPageContext } from "../_components/context";
 
@@ -18,11 +19,18 @@ export default async function SettingsPage() {
   const { session, workspace } = await getPageContext();
   const { profile } = session;
   const isSuperAdmin = profile.role === "SUPER_ADMIN";
+  // Super admins schedule in the selected workspace (025); admins in their own (029).
+  const canSchedule = (isSuperAdmin || profile.role === "ADMIN") && Boolean(workspace);
   const [workspaces, meetings, members] = await Promise.all([
     getMyWorkspaces(),
-    isSuperAdmin && workspace ? listMeetingLinks(workspace.id) : Promise.resolve([]),
-    isSuperAdmin && workspace ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),
+    canSchedule && workspace ? listMeetingLinks(workspace.id) : Promise.resolve([]),
+    canSchedule && workspace ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),
   ]);
+  // Admins edit the meetings they created; super admins any (mirrors RLS).
+  const manageableIds = meetings.filter((m) => isSuperAdmin || m.createdBy === session.user.id).map((m) => m.id);
+  const people = members
+    .filter((m) => m.isActive)
+    .map((m) => ({ userId: m.userId, name: displayName({ full_name: m.fullName, email: m.email }) }));
 
   return (
     <>
@@ -83,13 +91,15 @@ export default async function SettingsPage() {
           ) : null}
         </Section>
 
-        {isSuperAdmin && workspace ? (
+        {canSchedule && workspace ? (
           <div id="meetings" className="scroll-mt-20">
-            <Section title="Meeting links">
+            <Section title={`Meetings · ${workspace.name}`}>
               <MeetingLinksManager
                 workspaceId={workspace.id}
                 links={meetings}
                 memberTeams={[...new Set(members.map((m) => m.team).filter((t): t is string => Boolean(t)))]}
+                people={people}
+                manageableIds={manageableIds}
               />
             </Section>
           </div>

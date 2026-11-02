@@ -10,8 +10,10 @@ insert into auth.users (id, email, raw_user_meta_data) values
   ('c3333333-3333-3333-3333-333333333333', 'iv@rb.test', '{"full_name":"IV"}'),
   ('c4444444-4444-4444-4444-444444444444', 'i2@rb.test', '{"full_name":"I2"}'),
   ('c5555555-5555-5555-5555-555555555555', 'ot@rb.test', '{"full_name":"OT"}');
-update public.profiles set role = 'SUPER_ADMIN' where id in ('c1111111-1111-1111-1111-111111111111', 'c5555555-5555-5555-5555-555555555555');
-update public.profiles set role = 'ADMIN' where id = 'c2222222-2222-2222-2222-222222222222';
+-- ot is an admin of the other workspace (until 025 its super admin; super admins
+-- are now company-level, see company_admin.test.sql).
+update public.profiles set role = 'SUPER_ADMIN' where id = 'c1111111-1111-1111-1111-111111111111';
+update public.profiles set role = 'ADMIN' where id in ('c2222222-2222-2222-2222-222222222222', 'c5555555-5555-5555-5555-555555555555');
 
 insert into public.workspaces (id, name, created_by) values
   ('d1000000-0000-0000-0000-000000000001', 'RB', 'c1111111-1111-1111-1111-111111111111'),
@@ -50,7 +52,7 @@ update public.bug_reports set status = 'RESOLVED' where title = 'Button broken';
 set local request.jwt.claims to '{"sub":"c4444444-4444-4444-4444-444444444444","role":"authenticated"}';
 select is((select count(*)::int from public.bug_reports), 0, 'other members cannot see someone else''s report');
 set local request.jwt.claims to '{"sub":"c5555555-5555-5555-5555-555555555555","role":"authenticated"}';
-select is((select count(*)::int from public.bug_reports), 0, 'super admin of another workspace cannot see it');
+select is((select count(*)::int from public.bug_reports), 0, 'an admin of another workspace cannot see it');
 set local request.jwt.claims to '{"sub":"c3333333-3333-3333-3333-333333333333","role":"authenticated"}';
 select is((select status from public.bug_reports where title = 'Button broken'), 'OPEN', 'reporter cannot change status');
 set local request.jwt.claims to '{"sub":"c2222222-2222-2222-2222-222222222222","role":"authenticated"}';

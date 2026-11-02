@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { createEmployee, reissueInvite, setEmployeeActive, setWorkspaceAccess } from "@/lib/actions/employees";
-import { removeMember, setCanCreateProjects, updateMemberProfile } from "@/lib/actions/workspace";
+import { removeMember, setCanCreateClientsProjects, setCanCreateProjects, updateMemberProfile } from "@/lib/actions/workspace";
 import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import type { AddEmployeeResult } from "@/lib/employee-workflow";
 
@@ -91,6 +91,7 @@ export function MemberActions({
     role: UserRole;
     isActive: boolean;
     canCreateProjects: boolean;
+    canCreateClientsProjects: boolean;
     jobTitle: string | null;
     managerId: string | null;
     team: string | null;
@@ -191,6 +192,18 @@ export function MemberActions({
                 }
               >
                 {member.canCreateProjects ? "Disallow creating projects" : "Allow creating projects"}
+              </DropdownMenuItem>
+            ) : null}
+            {member.role === "INDIVIDUAL" ? (
+              <DropdownMenuItem
+                onClick={() =>
+                  run(
+                    () => setCanCreateClientsProjects(workspaceId, member.userId, !member.canCreateClientsProjects),
+                    member.canCreateClientsProjects ? "Client and project creation disabled" : "Client and project creation enabled",
+                  )
+                }
+              >
+                {member.canCreateClientsProjects ? "Disallow creating clients and projects" : "Allow creating clients and projects"}
               </DropdownMenuItem>
             ) : null}
             {member.pendingInvite && member.isActive ? (

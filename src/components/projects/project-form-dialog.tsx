@@ -264,9 +264,13 @@ export function DeleteProjectButton({ projectId, name }: { projectId: string; na
         open={open}
         onOpenChange={setOpen}
         title={`Delete “${name}”?`}
-        description="The project and all of its own tasks will be permanently deleted. Other projects, clients and people are not affected. Consider archiving instead."
+        description={
+          impact.status === "ready" && impact.data.tasks > 0
+            ? "This project has tasks, so it cannot be deleted. Archive it instead: edit the project and set its status to Archived. Its tasks and history are kept."
+            : "The project has no tasks and will be permanently deleted. Clients and people are not affected."
+        }
         pending={pending}
-        confirmDisabled={impact.status !== "ready"}
+        confirmDisabled={impact.status !== "ready" || impact.data.tasks > 0}
         onConfirm={() =>
           startTransition(async () => {
             const r = await deleteProject(projectId);

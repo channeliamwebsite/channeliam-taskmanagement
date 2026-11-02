@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { getPermissions, hasMinimumRole, hasRole, isRole, mayCreateProjects, mayEditProject, ROUTE_ROLES } from "./roles.ts";
+import { getPermissions, hasMinimumRole, hasRole, isRole, mayCreateClients, mayCreateProjects, mayEditProject, ROUTE_ROLES } from "./roles.ts";
 import { DEFAULT_AUTHENTICATED_ROUTE, isPublicRoute, requiresAuth, safeRedirectPath } from "./routes.ts";
 import { validateLogin, validateNewPassword } from "./validation.ts";
 
@@ -70,9 +70,27 @@ describe("roles and permissions", () => {
     assert.equal(mayCreateProjects("ADMIN", allowed), true);
     assert.equal(mayCreateProjects("ADMIN", notAllowed), false);
     assert.equal(mayCreateProjects("INDIVIDUAL", allowed), false);
-    // Not a member of the workspace: refused for every role, as in RLS.
-    assert.equal(mayCreateProjects("SUPER_ADMIN", null), false);
+    // Not a member of the workspace: refused for admins, as in RLS; super
+    // admins are company-level since migration 025.
+    assert.equal(mayCreateProjects("SUPER_ADMIN", null), true);
     assert.equal(mayCreateProjects("ADMIN", null), false);
+    assert.equal(mayCreateProjects("INDIVIDUAL", null), false);
+  });
+
+  it("lets individuals create clients and projects only with the default-off grant (028)", () => {
+    const member = { canCreateProjects: true, canCreateClientsProjects: false };
+    const granted = { canCreateProjects: false, canCreateClientsProjects: true };
+    // can_create_projects (default true since 020) gives individuals nothing.
+    assert.equal(mayCreateProjects("INDIVIDUAL", member), false);
+    assert.equal(mayCreateClients("INDIVIDUAL", member), false);
+    assert.equal(mayCreateProjects("INDIVIDUAL", granted), true);
+    assert.equal(mayCreateClients("INDIVIDUAL", granted), true);
+    assert.equal(mayCreateClients("INDIVIDUAL", null), false);
+    // The individual grant does not change admins' project rule.
+    assert.equal(mayCreateProjects("ADMIN", granted), false);
+    assert.equal(mayCreateClients("ADMIN", { canCreateClientsProjects: false }), true);
+    assert.equal(mayCreateClients("ADMIN", null), false);
+    assert.equal(mayCreateClients("SUPER_ADMIN", null), true);
   });
 
   it("lets super admins, owners/creators and project-managing admins edit projects", () => {

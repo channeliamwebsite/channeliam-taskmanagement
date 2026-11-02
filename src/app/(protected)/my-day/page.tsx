@@ -92,7 +92,7 @@ export default async function MyDayPage() {
 
       <div className="mb-6">
         <MeetingLinksCard
-          links={meetingsForPerson(meetings, session.profile.team, today)}
+          links={meetingsForPerson(meetings, session.profile.team, today, session.user.id)}
           canManage={session.profile.role === "SUPER_ADMIN"}
         />
       </div>

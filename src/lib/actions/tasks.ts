@@ -332,7 +332,7 @@ export async function getTaskDeletionImpact(taskId: string): Promise<ActionResul
   }
 }
 
-/** Deletes the task and, by cascade, its nested subtasks and their comments, time entries and links. */
+/** Deletes a task that has no history; tasks with history are cancelled instead (refused by migration 027). */
 export async function deleteTask(taskId: string): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;

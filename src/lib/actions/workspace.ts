@@ -128,6 +128,29 @@ export async function updateMemberProfile(userId: string, update: MemberUpdate):
   return ok();
 }
 
+/**
+ * Grants or revokes an Individual's permission to create clients and projects
+ * in one workspace (028, default off). Super admins only; RLS and the column
+ * grant enforce it again, and the change is audited (MEMBER_PERMISSION_CHANGED).
+ */
+export async function setCanCreateClientsProjects(workspaceId: string, userId: string, value: boolean): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can change this.");
+  if (!isUuid(workspaceId) || !isUuid(userId)) return fail("Invalid request.");
+
+  const { data, error } = await actor.supabase
+    .from("workspace_members")
+    .update({ can_create_clients_projects: Boolean(value) })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .select("id");
+  if (error) return fail(dbError(error));
+  if (!data.length) return fail(NOT_PERMITTED);
+  refresh();
+  return ok();
+}
+
 export async function setCanCreateProjects(workspaceId: string, userId: string, value: boolean): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;

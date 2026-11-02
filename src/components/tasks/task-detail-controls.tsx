@@ -54,6 +54,10 @@ export function TaskHeaderActions({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const impact = useDeletionImpact(deleteOpen, () => getTaskDeletionImpact(taskId));
+  // Tasks with history are cancelled, not deleted (migration 027 refuses it too).
+  const hasHistory =
+    impact.status === "ready" &&
+    impact.data.subtasks + impact.data.comments + impact.data.attachments + impact.data.timeEntries > 0;
 
   return (
     <>
@@ -102,12 +106,12 @@ export function TaskHeaderActions({
         onOpenChange={setDeleteOpen}
         title={`Delete “${title}”?`}
         description={
-          subtaskCount
-            ? "This task and its subtasks (including nested ones) will be permanently deleted. Assigned people are not affected."
-            : "This task and its history will be permanently deleted. Assigned people are not affected."
+          subtaskCount || hasHistory
+            ? "This task has history (subtasks, comments, time or attachments), so it cannot be deleted. Set its status to Cancelled instead; its history is kept."
+            : "This task has no history and will be permanently deleted. Assigned people are not affected. A task named in a daily report or meeting follow-up cannot be deleted."
         }
         pending={pending}
-        confirmDisabled={impact.status !== "ready"}
+        confirmDisabled={impact.status !== "ready" || Boolean(subtaskCount) || hasHistory}
         onConfirm={() =>
           startTransition(async () => {
             const r = await deleteTask(taskId);

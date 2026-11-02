@@ -18,7 +18,9 @@ update public.profiles set team = 'News Desk' where id = 'e4444444-4444-4444-444
 
 insert into public.workspaces (id, name, created_by) values
   ('f1000000-0000-0000-0000-000000000001', 'TC', 'e1111111-1111-1111-1111-111111111111');
+-- Since 025 a super admin creator is not auto-added; this existing membership is explicit.
 insert into public.workspace_members (workspace_id, user_id) values
+  ('f1000000-0000-0000-0000-000000000001', 'e1111111-1111-1111-1111-111111111111'),
   ('f1000000-0000-0000-0000-000000000001', 'e2222222-2222-2222-2222-222222222222'),
   ('f1000000-0000-0000-0000-000000000001', 'e6666666-6666-6666-6666-666666666666'),
   ('f1000000-0000-0000-0000-000000000001', 'e3333333-3333-3333-3333-333333333333'),
@@ -122,10 +124,12 @@ select is((select count(*)::int from public.meeting_links where workspace_id = '
 set local request.jwt.claims to '{"sub":"e2222222-2222-2222-2222-222222222222","role":"authenticated"}';
 select is((select count(*)::int from public.meeting_links where workspace_id = 'f1000000-0000-0000-0000-000000000001'), 3,
           'admin sees meeting links');
-select throws_ok($$
-  insert into public.meeting_links (workspace_id, title, url, created_by)
-  values ('f1000000-0000-0000-0000-000000000001', 'Admin meeting', 'https://meet.example.test/x', 'e2222222-2222-2222-2222-222222222222')
-$$, '42501', null, 'admin cannot create meeting links');
+-- Since 029 admins schedule meetings in their own workspaces (a team meeting
+-- here, so the department checks below are unaffected).
+select lives_ok($$
+  insert into public.meeting_links (workspace_id, title, url, created_by, team)
+  values ('f1000000-0000-0000-0000-000000000001', 'Admin meeting', 'https://meet.example.test/x', 'e2222222-2222-2222-2222-222222222222', 'Leads')
+$$, 'an admin schedules a meeting in their workspace (029)');
 
 set local request.jwt.claims to '{"sub":"e3333333-3333-3333-3333-333333333333","role":"authenticated"}';
 select is((select array_agg(title order by title) from public.meeting_links where workspace_id = 'f1000000-0000-0000-0000-000000000001'),

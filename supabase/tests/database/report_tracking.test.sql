@@ -20,7 +20,9 @@ insert into public.workspaces (id, name, created_by, timezone) values
   ('9c000000-0000-4000-8000-000000000001', 'RT X', '8b000000-0000-4000-8000-000000000001', 'Asia/Kolkata'),
   ('9c000000-0000-4000-8000-000000000002', 'RT Y', '8b000000-0000-4000-8000-000000000003', 'America/New_York'),
   ('9c000000-0000-4000-8000-000000000003', 'RT K', '8b000000-0000-4000-8000-000000000004', 'Asia/Kathmandu');
+-- Since 025 a super admin creator is not auto-added; this existing membership is explicit.
 insert into public.workspace_members (workspace_id, user_id) values
+  ('9c000000-0000-4000-8000-000000000001', '8b000000-0000-4000-8000-000000000001'),
   ('9c000000-0000-4000-8000-000000000001', '8b000000-0000-4000-8000-000000000002');
 
 -- ---------------------------------------------------------------------------

@@ -152,6 +152,10 @@ export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   EMPLOYEE_DEACTIVATED: "deactivated an employee",
   EMPLOYEE_REACTIVATED: "reactivated an employee",
   EMPLOYEE_UPDATED: "updated an employee",
+  WORKSPACE_CREATED: "created the workspace",
+  WORKSPACE_UPDATED: "changed workspace settings",
+  COLLABORATOR_ADDED: "gave project access to someone from another workspace",
+  COLLABORATOR_REMOVED: "removed someone's project access",
 };
 
 export function isTaskStatus(value: unknown): value is TaskStatus {

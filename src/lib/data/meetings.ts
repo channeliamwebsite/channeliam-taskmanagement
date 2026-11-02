@@ -16,17 +16,24 @@ export type MeetingLink = {
   startsAt: string | null;
   /** One-off date, or null for a recurring daily meeting. */
   meetingDate: string | null;
+  description: string | null;
+  /** HH:MM:SS (workspace local time) or null. */
+  endsAt: string | null;
+  createdBy: string | null;
+  /** Named participants (029); empty = the team / everyone audience. */
+  participantIds: string[];
 };
 
 /**
- * Meeting links the caller may see (RLS): the organisation-wide meeting(s),
- * their own team's meetings, and — for admins — every meeting in the workspace.
+ * Meetings the caller may see (RLS): meetings without named participants for
+ * everyone or their team, meetings they are invited to, every meeting of a
+ * workspace they administer, and (super admins) every meeting.
  */
 export async function listMeetingLinks(workspaceId: string, opts: { activeOnly?: boolean } = {}): Promise<MeetingLink[]> {
   const supabase = await createClient();
   let query = supabase
     .from("meeting_links")
-    .select("id, team, title, url, schedule, sort_order, is_active, kind, starts_at, meeting_date")
+    .select("id, team, title, url, schedule, sort_order, is_active, kind, starts_at, meeting_date, description, ends_at, created_by, participants:meeting_participants(user_id)")
     .eq("workspace_id", workspaceId)
     .order("sort_order")
     .order("title");
@@ -44,19 +51,30 @@ export async function listMeetingLinks(workspaceId: string, opts: { activeOnly?:
     kind: (m.kind === "MORNING" || m.kind === "EVENING" ? m.kind : "OTHER") as MeetingLink["kind"],
     startsAt: m.starts_at,
     meetingDate: m.meeting_date,
+    description: m.description,
+    endsAt: m.ends_at,
+    createdBy: m.created_by,
+    participantIds: (m.participants ?? []).map((p) => p.user_id),
   }));
 }
 
 const KIND_ORDER = { MORNING: 0, EVENING: 1, OTHER: 2 } as const;
 
 /**
- * Today's meetings relevant to one person: organisation-wide plus their
- * team's, recurring or dated today; morning first, then by start time.
+ * Today's meetings relevant to one person: meetings they are invited to, and
+ * meetings without named participants for everyone or their team, recurring
+ * or dated today; morning first, then by start time.
  */
-export function meetingsForPerson(links: MeetingLink[], team: string | null, today?: string) {
+export function meetingsForPerson(links: MeetingLink[], team: string | null, today?: string, userId?: string) {
   const mine = team?.trim().toLowerCase() ?? null;
   return links
-    .filter((l) => l.isActive && (l.team === null || (mine !== null && l.team.trim().toLowerCase() === mine)))
+    .filter(
+      (l) =>
+        l.isActive &&
+        (l.participantIds.length
+          ? userId !== undefined && l.participantIds.includes(userId)
+          : l.team === null || (mine !== null && l.team.trim().toLowerCase() === mine)),
+    )
     .filter((l) => !today || l.meetingDate === null || l.meetingDate === today)
     .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (a.startsAt ?? "99").localeCompare(b.startsAt ?? "99") || a.sortOrder - b.sortOrder);
 }

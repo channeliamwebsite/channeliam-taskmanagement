@@ -22,7 +22,7 @@ function validate(input: ClientInput) {
 export async function createClient(workspaceId: string, input: ClientInput): Promise<ActionResult<{ id: string }>> {
   const actor = await getActor();
   if (!actor.ok) return actor;
-  if (actor.profile.role === "INDIVIDUAL") return fail("Only admins can add clients.");
+  // Admins, super admins and individuals granted can_create_clients_projects (028); RLS decides.
   if (!isUuid(workspaceId)) return fail("Invalid workspace.");
   const fields = validate(input);
   if (!fields.ok) return fields;
@@ -33,7 +33,9 @@ export async function createClient(workspaceId: string, input: ClientInput): Pro
     .select("id")
     .single();
   if (error || !data) {
-    return fail(error?.code === "23505" ? "A client with that name already exists." : dbError(error, "Could not add the client."));
+    if (error?.code === "23505") return fail("A client with that name already exists.");
+    if (error?.code === "42501") return fail("You don't have permission to add clients in this workspace. Ask a super admin to enable it.");
+    return fail(dbError(error, "Could not add the client."));
   }
   refresh();
   return ok({ id: data.id });

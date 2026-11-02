@@ -1,6 +1,7 @@
 // Who may manage a task (edit it, change its assignees, add subtasks under it).
-// Mirrors private.can_manage_task (migration 002); the database stays
-// authoritative and refuses anything this lets through by mistake.
+// Mirrors private.can_manage_task (migrations 002 and 025: super admins manage
+// every task, in any workspace); the database stays authoritative and refuses
+// anything this lets through by mistake.
 
 import type { UserRole } from "@/lib/auth/roles";
 

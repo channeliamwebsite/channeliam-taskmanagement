@@ -87,14 +87,34 @@ export function mayEditProject(
 
 /**
  * Whether a user may create projects in a workspace, mirroring
- * `private.can_create_project` (002): a super admin who is a member, or an
- * admin whose membership has `can_create_projects`. `membership` is the
- * user's own row in that workspace, or null when they are not a member.
+ * `private.can_create_project`: a super admin in any workspace (company-level
+ * since 025), an admin whose membership has `can_create_projects`, or an
+ * individual granted `can_create_clients_projects` (028, default off).
+ * `membership` is the user's own row in that workspace, or null when they are
+ * not a member.
  */
-export function mayCreateProjects(role: UserRole, membership: { canCreateProjects: boolean } | null) {
-  if (!membership) return false;
+export function mayCreateProjects(
+  role: UserRole,
+  membership: { canCreateProjects: boolean; canCreateClientsProjects?: boolean } | null,
+) {
   if (role === "SUPER_ADMIN") return true;
+  if (!membership) return false;
+  if (role === "INDIVIDUAL") return Boolean(membership.canCreateClientsProjects);
   return role === "ADMIN" && membership.canCreateProjects;
+}
+
+/**
+ * Whether a user may create clients in a workspace, mirroring the clients
+ * insert policies: super admins anywhere, admins of the workspace, and
+ * individuals granted `can_create_clients_projects` (028).
+ */
+export function mayCreateClients(
+  role: UserRole,
+  membership: { canCreateClientsProjects?: boolean } | null,
+) {
+  if (role === "SUPER_ADMIN") return true;
+  if (!membership) return false;
+  return role === "ADMIN" || Boolean(membership.canCreateClientsProjects);
 }
 export type Permission = keyof Permissions;
 

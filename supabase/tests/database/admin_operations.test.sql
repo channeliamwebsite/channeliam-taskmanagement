@@ -159,11 +159,12 @@ select lives_ok($$
   select public.create_task('9d000000-0000-4000-8000-000000000001', 'SA subtask', array['9a000000-0000-4000-8000-000000000004']::uuid[],
     null, (select id from public.tasks where title = 'Admin task'))
 $$, 'a super admin adds a subtask under any task of their workspace');
-set local request.jwt.claims to '{"sub":"9a000000-0000-4000-8000-000000000005","role":"authenticated"}';
+-- Since 025 super admins are company-level; isolation is checked with W2's admin.
+set local request.jwt.claims to '{"sub":"9a000000-0000-4000-8000-000000000006","role":"authenticated"}';
 select throws_ok($$
   insert into public.tasks (project_id, parent_task_id, title)
-  values ('9d000000-0000-4000-8000-000000000001', '9e000000-0000-4000-8000-000000000001', 'Foreign SA subtask')
-$$, '42501', null, 'another workspace''s super admin cannot');
+  values ('9d000000-0000-4000-8000-000000000001', '9e000000-0000-4000-8000-000000000001', 'Foreign admin subtask')
+$$, '42501', null, 'an admin of another workspace cannot');
 
 -- Individuals: unchanged (own tasks only).
 set local request.jwt.claims to '{"sub":"9a000000-0000-4000-8000-000000000004","role":"authenticated"}';

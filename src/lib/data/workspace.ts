@@ -22,6 +22,8 @@ export type Member = {
   jobTitle: string | null;
   isActive: boolean;
   canCreateProjects: boolean;
+  /** Individuals only: may create clients and projects here (028, default off). */
+  canCreateClientsProjects: boolean;
   /** Reporting manager (independent of task assignment). */
   managerId: string | null;
   team: string | null;
@@ -63,7 +65,7 @@ export const getWorkspaceMembers = cache(async (workspaceId: string): Promise<Me
   const { data, error } = await supabase
     .from("workspace_members")
     .select(
-      "user_id, can_create_projects, profile:profiles!workspace_members_user_id_fkey(full_name, email, avatar_url, role, department, job_title, is_active, manager_id, team)",
+      "user_id, can_create_projects, can_create_clients_projects, profile:profiles!workspace_members_user_id_fkey(full_name, email, avatar_url, role, department, job_title, is_active, manager_id, team)",
     )
     .eq("workspace_id", workspaceId);
   if (error) throw loadError("Failed to load workspace members", error);
@@ -80,6 +82,7 @@ export const getWorkspaceMembers = cache(async (workspaceId: string): Promise<Me
       jobTitle: row.profile!.job_title,
       isActive: row.profile!.is_active,
       canCreateProjects: row.can_create_projects,
+      canCreateClientsProjects: row.can_create_clients_projects,
       managerId: row.profile!.manager_id,
       team: row.profile!.team,
     }))
@@ -88,7 +91,7 @@ export const getWorkspaceMembers = cache(async (workspaceId: string): Promise<Me
 
 /** Whether the current user may create projects in the workspace (mirrors RLS). */
 export async function canCreateProjects(workspaceId: string, userId: string, role: UserRole) {
-  if (role === "INDIVIDUAL") return false;
+  if (role === "SUPER_ADMIN") return true;
   const members = await getWorkspaceMembers(workspaceId);
   return mayCreateProjects(role, members.find((m) => m.userId === userId) ?? null);
 }

@@ -7,24 +7,30 @@ create extension if not exists pgtap with schema extensions;
 select * from no_plan();
 
 -- ---------------------------------------------------------------------------
--- Fixtures (as postgres). W (Asia/Kolkata): sa (creator), adm, e1.
--- e2 = a newly invited employee (account exists, no membership yet).
--- W2: s2, a super admin of another workspace only.
+-- Fixtures (as postgres). W (Asia/Kolkata): sa (creator, existing member), adm,
+-- e1. e2 = a newly invited employee (account exists, no membership yet).
+-- W2: s2, a super admin who is a member of W2 only; o2, an admin of W2 only.
+-- Since 025 super admins are company-level (see company_admin.test.sql), so
+-- workspace isolation is checked with o2.
 -- ---------------------------------------------------------------------------
 insert into auth.users (id, email, raw_user_meta_data) values
   ('8c000000-0000-4000-8000-000000000001', 'sa@ea.test', '{"full_name":"SA"}'),
   ('8c000000-0000-4000-8000-000000000002', 'adm@ea.test', '{"full_name":"ADM"}'),
   ('8c000000-0000-4000-8000-000000000003', 'e1@ea.test', '{"full_name":"E1"}'),
   ('8c000000-0000-4000-8000-000000000004', 'e2@ea.test', '{"full_name":"Invited E2"}'),
-  ('8c000000-0000-4000-8000-000000000005', 's2@ea.test', '{"full_name":"S2"}');
+  ('8c000000-0000-4000-8000-000000000005', 's2@ea.test', '{"full_name":"S2"}'),
+  ('8c000000-0000-4000-8000-000000000006', 'o2@ea.test', '{"full_name":"O2"}');
 update public.profiles set role = 'SUPER_ADMIN' where id in ('8c000000-0000-4000-8000-000000000001', '8c000000-0000-4000-8000-000000000005');
-update public.profiles set role = 'ADMIN' where id = '8c000000-0000-4000-8000-000000000002';
+update public.profiles set role = 'ADMIN' where id in ('8c000000-0000-4000-8000-000000000002', '8c000000-0000-4000-8000-000000000006');
 insert into public.workspaces (id, name, created_by, timezone) values
   ('9d000000-0000-4000-8000-000000000001', 'EA', '8c000000-0000-4000-8000-000000000001', 'Asia/Kolkata'),
   ('9d000000-0000-4000-8000-000000000002', 'EA other', '8c000000-0000-4000-8000-000000000005', 'Asia/Kolkata');
 insert into public.workspace_members (workspace_id, user_id) values
+  ('9d000000-0000-4000-8000-000000000001', '8c000000-0000-4000-8000-000000000001'),
   ('9d000000-0000-4000-8000-000000000001', '8c000000-0000-4000-8000-000000000002'),
-  ('9d000000-0000-4000-8000-000000000001', '8c000000-0000-4000-8000-000000000003');
+  ('9d000000-0000-4000-8000-000000000001', '8c000000-0000-4000-8000-000000000003'),
+  ('9d000000-0000-4000-8000-000000000002', '8c000000-0000-4000-8000-000000000005'),
+  ('9d000000-0000-4000-8000-000000000002', '8c000000-0000-4000-8000-000000000006');
 insert into public.tasks (id, project_id, title, status) values
   ('7e000000-0000-4000-8000-000000000001', (select id from public.projects where workspace_id = '9d000000-0000-4000-8000-000000000001' and is_default), 'E2 first task', 'TODO'),
   ('7e000000-0000-4000-8000-000000000002', (select id from public.projects where workspace_id = '9d000000-0000-4000-8000-000000000001' and is_default), 'Later task', 'TODO');
@@ -56,14 +62,14 @@ select throws_ok($$ update public.profiles set role = 'SUPER_ADMIN' where id = '
   '42501', null, 'an individual cannot change their own role');
 select is((select count(*)::int from public.workspace_members where workspace_id = '9d000000-0000-4000-8000-000000000001' and user_id = '8c000000-0000-4000-8000-000000000003'), 1,
   'an admin cannot remove employees from the workspace');
-set local request.jwt.claims to '{"sub":"8c000000-0000-4000-8000-000000000005","role":"authenticated"}';
+set local request.jwt.claims to '{"sub":"8c000000-0000-4000-8000-000000000006","role":"authenticated"}';
 select throws_ok($$ insert into public.workspace_members (workspace_id, user_id) values ('9d000000-0000-4000-8000-000000000001', '8c000000-0000-4000-8000-000000000004') $$,
-  '42501', null, 'a super admin of another workspace cannot add employees here');
+  '42501', null, 'an admin of another workspace cannot add employees here');
 update public.profiles set is_active = false where id = '8c000000-0000-4000-8000-000000000003';
 reset role;
 set local request.jwt.claims to '';
 select ok((select is_active from public.profiles where id = '8c000000-0000-4000-8000-000000000003'),
-  'a super admin of another workspace cannot deactivate employees here');
+  'an admin of another workspace cannot deactivate employees here');
 
 -- ---------------------------------------------------------------------------
 -- Add employee (what createEmployee does after the Auth invitation)

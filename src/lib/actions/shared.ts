@@ -53,6 +53,13 @@ const SAFE_DB_MESSAGES = [
   "You are already checked in",
   "You are not checked in",
   "You can only record attendance in a workspace you belong to",
+  "Archive it instead of deleting it",
+  "Cancel it instead of deleting it",
+  "Deactivate it instead of deleting it",
+  "Participants must be active members of the meeting's workspace",
+  "still has open assignments in the project",
+  "already a member of the project's workspace",
+  "Only active employees can be given project access",
 ];
 
 /**

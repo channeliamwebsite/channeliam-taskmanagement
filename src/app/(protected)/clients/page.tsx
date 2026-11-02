@@ -4,9 +4,12 @@ import Link from "next/link";
 
 import { ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
+import { TargetWorkspacePicker } from "@/components/app/target-workspace-picker";
 import { ClientFormButton } from "@/components/clients/client-form-button";
 import { listClients } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
+import { getMyWorkspaces, getWorkspaceMembers } from "@/lib/data/workspace";
+import { mayCreateClients } from "@/lib/auth/roles";
 import { combineProgress } from "@/lib/progress";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -17,8 +20,16 @@ export default async function ClientsPage() {
   const { session, workspace } = await getPageContext();
   if (!workspace) return <NoWorkspace session={session} />;
 
-  const [clients, projects] = await Promise.all([listClients(workspace.id, { withContacts: session.profile.role !== "INDIVIDUAL" }), listProjects(workspace.id)]);
+  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  const [clients, projects, members, allWorkspaces] = await Promise.all([
+    listClients(workspace.id, { withContacts: session.profile.role !== "INDIVIDUAL" }),
+    listProjects(workspace.id),
+    getWorkspaceMembers(workspace.id),
+    isSuperAdmin ? getMyWorkspaces() : Promise.resolve([]),
+  ]);
   const canEdit = session.profile.role !== "INDIVIDUAL";
+  // Individuals add clients only with the can_create_clients_projects grant (028).
+  const canAdd = mayCreateClients(session.profile.role, members.find((m) => m.userId === session.user.id) ?? null);
   // Contact details are shown to admins only.
   const showContacts = canEdit;
   const unassigned = projects.filter((p) => !p.clientId);
@@ -28,10 +39,17 @@ export default async function ClientsPage() {
       <PageHeader
         title="Clients"
         description={`${clients.length} client${clients.length === 1 ? "" : "s"} · Client → Project → Task`}
-        actions={canEdit ? <ClientFormButton workspaceId={workspace.id} /> : null}
+        actions={
+          canAdd ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {isSuperAdmin ? <TargetWorkspacePicker workspaces={allWorkspaces} activeId={workspace.id} /> : null}
+              <ClientFormButton workspaceId={workspace.id} />
+            </div>
+          ) : null
+        }
       />
       {clients.length === 0 && projects.length === 0 ? (
-        <EmptyState icon={Briefcase} title="No clients yet" description={canEdit ? "Add a client, then create projects for it." : "Clients will appear here."} />
+        <EmptyState icon={Briefcase} title="No clients yet" description={canAdd ? "Add a client, then create projects for it." : "Clients will appear here."} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {[...clients.map((c) => ({ client: c, list: projects.filter((p) => p.clientId === c.id) })),

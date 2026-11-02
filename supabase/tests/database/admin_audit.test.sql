@@ -15,7 +15,9 @@ update public.profiles set role = 'SUPER_ADMIN' where id in ('7a000000-0000-4000
 update public.profiles set role = 'ADMIN' where id = '7a000000-0000-4000-8000-000000000003';
 insert into public.workspaces (id, name, created_by) values
   ('7b000000-0000-4000-8000-000000000001', 'Audit', '7a000000-0000-4000-8000-000000000001');
+-- Since 025 a super admin creator is not auto-added; their membership is explicit.
 insert into public.workspace_members (workspace_id, user_id) values
+  ('7b000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000001'),
   ('7b000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000002'),
   ('7b000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000003'),
   ('7b000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000004');
@@ -24,7 +26,7 @@ insert into public.workspace_members (workspace_id, user_id) values
 create temporary view audit as
 select * from public.activity_logs where workspace_id = '7b000000-0000-4000-8000-000000000001';
 
-select is((select count(*)::int from audit where action = 'MEMBER_ADDED'), 4, 'adding members is recorded (creator included)');
+select is((select count(*)::int from audit where action = 'MEMBER_ADDED'), 4, 'adding members is recorded (the super admin''s membership included)');
 select ok((select bool_and(user_id is null) from audit where action = 'MEMBER_ADDED'),
   'changes made without a signed-in user are recorded with no actor');
 
@@ -149,17 +151,28 @@ select is((select role::text from public.profiles where id = '7a000000-0000-4000
 -- ---------------------------------------------------------------------------
 -- Deletions and history after deactivation
 -- ---------------------------------------------------------------------------
+-- Since 027 a project with tasks is archived, not deleted, and a client with
+-- projects cannot be deleted (014); the deletions below use an empty client
+-- with an empty project.
+insert into public.clients (id, workspace_id, name) values
+  ('7c000000-0000-4000-8000-000000000002', '7b000000-0000-4000-8000-000000000001', 'Spare client');
+insert into public.projects (id, workspace_id, name, client_id) values
+  ('7d000000-0000-4000-8000-000000000002', '7b000000-0000-4000-8000-000000000001', 'Empty site', '7c000000-0000-4000-8000-000000000002');
+create temporary table task_deletions_before as select count(*) as n from audit where action = 'TASK_DELETED';
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"7a000000-0000-4000-8000-000000000002","role":"authenticated"}';
-delete from public.projects where id = '7d000000-0000-4000-8000-000000000001';
-delete from public.clients where id = '7c000000-0000-4000-8000-000000000001';
+select throws_ok($$ delete from public.projects where id = '7d000000-0000-4000-8000-000000000001' $$,
+  '55000', null, 'a project with tasks cannot be deleted (027)');
+delete from public.projects where id = '7d000000-0000-4000-8000-000000000002';
+delete from public.clients where id = '7c000000-0000-4000-8000-000000000002';
 delete from public.workspace_members where workspace_id = '7b000000-0000-4000-8000-000000000001' and user_id = '7a000000-0000-4000-8000-000000000003';
 update public.profiles set is_active = false where id = '7a000000-0000-4000-8000-000000000004';
 reset role;
 set local request.jwt.claims to '';
 select is((select format('%s|%s', user_id, old_value->>'name') from audit where action = 'PROJECT_DELETED'),
-  '7a000000-0000-4000-8000-000000000002|Website v2', 'project deletion is recorded with actor and name');
-select is((select count(*)::int from audit where action = 'TASK_DELETED'), 1, 'tasks removed with their project are not logged one by one');
+  '7a000000-0000-4000-8000-000000000002|Empty site', 'project deletion is recorded with actor and name');
+select is((select count(*) from audit where action = 'TASK_DELETED'), (select n from task_deletions_before),
+  'the refused deletion removed and logged no tasks');
 select is((select count(*)::int from audit where action = 'CLIENT_DELETED' and user_id = '7a000000-0000-4000-8000-000000000002'), 1,
   'client deletion is recorded');
 select is((select count(*)::int from audit where action = 'MEMBER_REMOVED' and target_user_id = '7a000000-0000-4000-8000-000000000003'), 1,

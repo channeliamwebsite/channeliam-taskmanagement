@@ -1,15 +1,18 @@
 import { CheckSquare } from "lucide-react";
 import type { Metadata } from "next";
 
-import { EmptyState, PageHeader } from "@/components/app/page-header";
+import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
+import { TargetWorkspacePicker } from "@/components/app/target-workspace-picker";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { TaskBoard } from "@/components/tasks/task-board";
 import { TaskFilters } from "@/components/tasks/task-filters";
 import { TaskList } from "@/components/tasks/task-list";
 import { listClientOptions } from "@/lib/data/clients";
+import { listMyCollaborationProjectIds } from "@/lib/data/collaborators";
 import { listProjectOptions } from "@/lib/data/projects";
-import { listTasks, toTaskRows } from "@/lib/data/tasks";
-import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { listTasks, toTaskRows, type TaskSummary } from "@/lib/data/tasks";
+import { createClient } from "@/lib/supabase/server";
+import { getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, isPriority, isTaskStatus } from "@/lib/domain";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -94,6 +97,8 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     .map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const title = view === "board" ? "Task Board" : scope === "mine" ? "My Tasks" : "Tasks";
+  const allWorkspaces = session.profile.role === "SUPER_ADMIN" ? await getMyWorkspaces() : [];
+  const external = scope === "mine" && view !== "board" ? toTaskRows(await collaborationTasks(userId, workspace.id), session) : [];
 
   return (
     <>
@@ -101,13 +106,16 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         title={title}
         description={`${rows.length} task${rows.length === 1 ? "" : "s"} in ${workspace.name}`}
         actions={
-          <NewTaskButton
-            projects={projects}
-            clients={clientOptions}
-            members={memberOptions}
-            workspaceId={workspace.id}
-            selfOnly={canAssign ? null : { userId }}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            {allWorkspaces.length ? <TargetWorkspacePicker workspaces={allWorkspaces} activeId={workspace.id} /> : null}
+            <NewTaskButton
+              projects={projects}
+              clients={clientOptions}
+              members={memberOptions}
+              workspaceId={workspace.id}
+              selfOnly={canAssign ? null : { userId }}
+            />
+          </div>
         }
       />
       <TaskFilters projects={projects} members={memberOptions} clients={clients} />
@@ -128,6 +136,32 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
       ) : (
         <TaskList tasks={rows} today={today} />
       )}
+      {external.length ? (
+        <Section title={`From other workspaces (${external.length})`} className="mt-6">
+          <p className="mb-2 text-xs text-muted-foreground">Tasks assigned to you in projects you were given access to.</p>
+          <TaskList tasks={external} today={today} />
+        </Section>
+      ) : null}
     </>
   );
+}
+
+/**
+ * Tasks assigned to the user in projects of other workspaces they were given
+ * access to (030). RLS returns only those tasks; one query per workspace.
+ */
+async function collaborationTasks(userId: string, activeWorkspaceId: string): Promise<TaskSummary[]> {
+  const projectIds = await listMyCollaborationProjectIds(userId);
+  if (!projectIds.length) return [];
+  const supabase = await createClient();
+  const { data } = await supabase.from("projects").select("id, workspace_id").in("id", projectIds);
+  const byWorkspace = new Map<string, string[]>();
+  for (const p of data ?? []) {
+    if (p.workspace_id === activeWorkspaceId) continue;
+    byWorkspace.set(p.workspace_id, [...(byWorkspace.get(p.workspace_id) ?? []), p.id]);
+  }
+  const lists = await Promise.all(
+    [...byWorkspace].map(([workspaceId, ids]) => listTasks({ workspaceId, projectIds: ids, assigneeId: userId })),
+  );
+  return lists.flat();
 }

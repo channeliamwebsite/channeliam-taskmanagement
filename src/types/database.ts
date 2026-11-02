@@ -25,7 +25,7 @@ export type Database = {
           target_user_id: string | null
           task_id: string | null
           user_id: string | null
-          workspace_id: string
+          workspace_id: string | null
         }
         ComputedFields: never
         Insert: {
@@ -38,7 +38,7 @@ export type Database = {
           target_user_id?: string | null
           task_id?: string | null
           user_id?: string | null
-          workspace_id: string
+          workspace_id?: string | null
         }
         Update: {
           action?: Database["public"]["Enums"]["activity_action"]
@@ -50,7 +50,7 @@ export type Database = {
           target_user_id?: string | null
           task_id?: string | null
           user_id?: string | null
-          workspace_id?: string
+          workspace_id?: string | null
         }
         Relationships: [
           {
@@ -403,6 +403,8 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
+          description: string | null
+          ends_at: string | null
           id: string
           is_active: boolean
           kind: string
@@ -420,6 +422,8 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by?: string | null
+          description?: string | null
+          ends_at?: string | null
           id?: string
           is_active?: boolean
           kind?: string
@@ -436,6 +440,8 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string | null
+          description?: string | null
+          ends_at?: string | null
           id?: string
           is_active?: boolean
           kind?: string
@@ -462,6 +468,50 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meeting_participants: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          meeting_link_id: string
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          meeting_link_id: string
+          user_id: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          meeting_link_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_participants_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_participants_meeting_link_id_fkey"
+            columns: ["meeting_link_id"]
+            isOneToOne: false
+            referencedRelation: "meeting_links"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -539,6 +589,7 @@ export type Database = {
           created_at: string
           id: string
           is_read: boolean
+          meeting_link_id: string | null
           message: string | null
           project_id: string | null
           read_at: string | null
@@ -553,6 +604,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_read?: boolean
+          meeting_link_id?: string | null
           message?: string | null
           project_id?: string | null
           read_at?: string | null
@@ -566,6 +618,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_read?: boolean
+          meeting_link_id?: string | null
           message?: string | null
           project_id?: string | null
           read_at?: string | null
@@ -647,6 +700,50 @@ export type Database = {
           {
             foreignKeyName: "profiles_manager_id_fkey"
             columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_collaborators: {
+        Row: {
+          granted_at: string
+          granted_by: string | null
+          project_id: string
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          granted_at?: string
+          granted_by?: string | null
+          project_id: string
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string | null
+          project_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_collaborators_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_collaborators_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_collaborators_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1066,6 +1163,7 @@ export type Database = {
       }
       workspace_members: {
         Row: {
+          can_create_clients_projects: boolean
           can_create_projects: boolean
           created_at: string
           id: string
@@ -1074,6 +1172,7 @@ export type Database = {
         }
         ComputedFields: never
         Insert: {
+          can_create_clients_projects?: boolean
           can_create_projects?: boolean
           created_at?: string
           id?: string
@@ -1081,6 +1180,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          can_create_clients_projects?: boolean
           can_create_projects?: boolean
           created_at?: string
           id?: string
@@ -1251,6 +1351,10 @@ export type Database = {
         | "EMPLOYEE_DEACTIVATED"
         | "EMPLOYEE_REACTIVATED"
         | "EMPLOYEE_UPDATED"
+        | "WORKSPACE_CREATED"
+        | "WORKSPACE_UPDATED"
+        | "COLLABORATOR_ADDED"
+        | "COLLABORATOR_REMOVED"
       dependency_type:
         | "FINISH_TO_START"
         | "START_TO_START"
@@ -1267,6 +1371,9 @@ export type Database = {
         | "PROJECT_UPDATED"
         | "MENTION"
         | "SYSTEM"
+        | "MEETING_SCHEDULED"
+        | "MEETING_UPDATED"
+        | "MEETING_CANCELLED"
       priority_level: "LOW" | "MEDIUM" | "HIGH" | "URGENT"
       project_status:
         | "PLANNING"
@@ -1449,6 +1556,10 @@ export const Constants = {
         "EMPLOYEE_DEACTIVATED",
         "EMPLOYEE_REACTIVATED",
         "EMPLOYEE_UPDATED",
+        "WORKSPACE_CREATED",
+        "WORKSPACE_UPDATED",
+        "COLLABORATOR_ADDED",
+        "COLLABORATOR_REMOVED",
       ],
       dependency_type: [
         "FINISH_TO_START",
@@ -1467,6 +1578,9 @@ export const Constants = {
         "PROJECT_UPDATED",
         "MENTION",
         "SYSTEM",
+        "MEETING_SCHEDULED",
+        "MEETING_UPDATED",
+        "MEETING_CANCELLED",
       ],
       priority_level: ["LOW", "MEDIUM", "HIGH", "URGENT"],
       project_status: [

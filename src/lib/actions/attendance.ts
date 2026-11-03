@@ -20,7 +20,27 @@ export async function checkIn(workspaceId: string): Promise<ActionResult> {
   return ok();
 }
 
-/** Closes the caller's open session at the database's current time. */
+/** Starts a break in the caller's open session (database time; one break at a time). */
+export async function startBreak(): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  const { error } = await actor.supabase.rpc("attendance_start_break");
+  if (error) return fail(dbError(error, "Could not start the break. Please try again."));
+  refresh();
+  return ok();
+}
+
+/** Ends the caller's running break at the database's current time. */
+export async function endBreak(): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  const { error } = await actor.supabase.rpc("attendance_end_break");
+  if (error) return fail(dbError(error, "Could not end the break. Please try again."));
+  refresh();
+  return ok();
+}
+
+/** Closes the caller's open session at the database's current time (and any running break). */
 export async function checkOut(): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;

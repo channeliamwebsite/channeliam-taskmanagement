@@ -214,15 +214,25 @@ select is((select count(*)::int from public.activity_logs
 -- ---------------------------------------------------------------------------
 -- Restricted HR boundary (structure)
 -- ---------------------------------------------------------------------------
+-- Identity data (PAN ciphertext, last fours) exists only in hr_employee_identity
+-- (035, decided 2026-11-03); salary, payroll, emergency contacts and bank
+-- details are still not stored anywhere.
 select is((select count(*)::int from information_schema.columns
-           where table_schema = 'public' and column_name ~* '(salary|payroll|pan_|aadhaar|emergency|bank_account)'), 0,
-  'no restricted HR fields exist in the TaskManagement schema');
+           where table_schema = 'public' and column_name ~* '(pan_|aadhaar)' and table_name <> 'hr_employee_identity'), 0,
+  'identity fields exist only in hr_employee_identity');
+select is((select count(*)::int from information_schema.columns
+           where table_schema = 'public' and column_name ~* '(salary|payroll|emergency|bank_account)'), 0,
+  'no salary, payroll, emergency-contact or bank fields exist');
+-- HR tables are named attendance_* or hr_* (033 onwards), so this boundary
+-- stays checkable as the HR module grows.
 select is((select count(*)::int from pg_policies
-           where schemaname = 'public' and tablename like 'attendance%' and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'is_company_admin'), 0,
-  'attendance policies do not use the TaskManagement company-admin helper');
+           where schemaname = 'public' and (tablename like 'attendance%' or tablename like 'hr\_%')
+             and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'is_company_admin'), 0,
+  'HR (attendance_*, hr_*) policies do not use the TaskManagement company-admin helper');
 select is((select count(*)::int from pg_policies
-           where schemaname = 'public' and tablename not like 'attendance%' and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'is_super_admin\('), 0,
-  'TaskManagement policies do not use the attendance-viewing helper');
+           where schemaname = 'public' and tablename not like 'attendance%' and tablename not like 'hr\_%'
+             and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'is_super_admin\('), 0,
+  'TaskManagement policies do not use the HR helper');
 
 set local role authenticated;
 

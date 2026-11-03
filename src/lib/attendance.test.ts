@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  DEFAULT_WORK_POLICY,
   addMonths,
+  breakMinutes,
+  expectedNetMinutes,
   formatClock,
   formatDuration,
   formatTime,
@@ -12,6 +15,7 @@ import {
   sessionMinutes,
   summarizeDay,
   weekDates,
+  workSummary,
   type AttendanceSession,
 } from "./attendance.ts";
 
@@ -119,5 +123,111 @@ describe("weeks and months", () => {
     assert.deepEqual(grid[0], [null, null, null, "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
     assert.equal(grid.at(-1)!.at(-1), null);
     assert.equal(grid.flat().filter(Boolean).length, 31);
+  });
+});
+
+describe("working-hours policy (033)", () => {
+  // 09:00 IST = 03:30Z
+  const day = (breaks: { startedAt: string; endedAt: string | null }[], checkOutAt: string | null = "2026-10-27T12:30:00Z") =>
+    session({ checkInAt: "2026-10-27T03:30:00Z", checkOutAt, breaks: breaks.map((b, i) => ({ id: `b${i}`, sessionId: "s", ...b })) });
+
+  it("expects 8 h 15 m net from a 9 h day with a 45 min break allowance", () => {
+    assert.equal(expectedNetMinutes(DEFAULT_WORK_POLICY), 495);
+  });
+
+  it("a full 9 h day with exactly 45 min of breaks meets the day", () => {
+    const w = workSummary([day([{ startedAt: "2026-10-27T07:30:00Z", endedAt: "2026-10-27T08:15:00Z" }])]);
+    assert.deepEqual(w, { elapsedMinutes: 540, breakMinutes: 45, netMinutes: 495, excessBreakMinutes: 0, remainingMinutes: 0, onBreak: false });
+  });
+
+  it("adds up several breaks and reports the excess over the allowance", () => {
+    const w = workSummary([day([
+      { startedAt: "2026-10-27T05:00:00Z", endedAt: "2026-10-27T05:20:00Z" },
+      { startedAt: "2026-10-27T07:30:00Z", endedAt: "2026-10-27T08:15:00Z" },
+    ])]);
+    assert.equal(w.breakMinutes, 65);
+    assert.equal(w.excessBreakMinutes, 20);
+    assert.equal(w.netMinutes, 475);
+    assert.equal(w.remainingMinutes, 20, "net time still owed to reach 8 h 15 m");
+  });
+
+  it("counts a running break up to now and reports being on break", () => {
+    const now = new Date("2026-10-27T08:00:00Z");
+    const w = workSummary([day([{ startedAt: "2026-10-27T07:30:00Z", endedAt: null }], null)], DEFAULT_WORK_POLICY, now);
+    assert.equal(w.elapsedMinutes, 270);
+    assert.equal(w.breakMinutes, 30);
+    assert.equal(w.netMinutes, 240);
+    assert.equal(w.remainingMinutes, 255);
+    assert.equal(w.onBreak, true);
+  });
+
+  it("never counts break time outside the session (bad or manipulated data)", () => {
+    const s = day([
+      { startedAt: "2026-10-27T02:00:00Z", endedAt: "2026-10-27T04:00:00Z" }, // starts before check-in: 30 min inside
+      { startedAt: "2026-10-27T12:00:00Z", endedAt: "2026-10-27T14:00:00Z" }, // runs past check-out: 30 min inside
+      { startedAt: "2026-10-27T09:00:00Z", endedAt: "2026-10-27T08:00:00Z" }, // ends before it starts: ignored
+    ]);
+    assert.equal(breakMinutes(s), 60);
+  });
+
+  it("breaks can never exceed the time worked", () => {
+    const s = day([{ startedAt: "2026-10-27T03:30:00Z", endedAt: "2026-10-27T12:30:00Z" }]);
+    const w = workSummary([s]);
+    assert.equal(w.breakMinutes, 540);
+    assert.equal(w.netMinutes, 0);
+  });
+
+  it("a day summary carries the work summary; a missing check-out counts nothing", () => {
+    const open = day([], null);
+    const d = summarizeDay("2026-10-27", [open], "2026-10-28", new Date("2026-10-28T06:00:00Z"));
+    assert.equal(d.status, "MISSING_CHECKOUT");
+    assert.equal(d.work.netMinutes, 0);
+    assert.equal(d.work.remainingMinutes, 495);
+  });
+
+  it("follows a different policy", () => {
+    const w = workSummary([day([])], { scheduledMinutes: 480, breakAllowanceMinutes: 60 });
+    assert.equal(w.remainingMinutes, 0);
+    assert.equal(w.excessBreakMinutes, 0);
+  });
+});
+
+describe("leave, holidays and weekly offs on the calendar (034)", () => {
+  const ctx = {
+    leave: new Map([["2027-01-05", "CL" as const], ["2027-01-06", "WFH" as const]]),
+    holidays: new Map([["2027-01-26", "Republic Day"]]),
+    weeklyOffDays: [0],
+  };
+  const today = "2027-02-01";
+  it("shows approved leave, WFH, holidays and Sundays on days without attendance", () => {
+    assert.equal(summarizeDay("2027-01-05", [], today, undefined, undefined, ctx).status, "CL");
+    assert.equal(summarizeDay("2027-01-06", [], today, undefined, undefined, ctx).status, "WFH");
+    const holiday = summarizeDay("2027-01-26", [], today, undefined, undefined, ctx);
+    assert.equal(holiday.status, "HOLIDAY");
+    assert.equal(holiday.holiday, "Republic Day");
+    assert.equal(summarizeDay("2027-01-10", [], today, undefined, undefined, ctx).status, "WEEKLY_OFF");
+    assert.equal(summarizeDay("2027-01-11", [], today, undefined, undefined, ctx).status, "NO_RECORD");
+  });
+  it("a real check-in always wins, and keeps the leave for reference", () => {
+    const s = session({ checkInAt: "2027-01-06T03:30:00Z", checkOutAt: "2027-01-06T12:30:00Z", workDate: "2027-01-06" });
+    const d = summarizeDay("2027-01-06", [s], today, undefined, undefined, ctx);
+    assert.equal(d.status, "PRESENT");
+    assert.equal(d.leave, "WFH");
+  });
+});
+
+describe("holidays and weekly offs inside a leave range (034)", () => {
+  // Approved CL Sat 9 Jan - Tue 12 Jan 2027 with a holiday on Mon 11 Jan.
+  const ctx = {
+    leave: new Map([["2027-01-09", "CL" as const], ["2027-01-10", "CL" as const], ["2027-01-11", "CL" as const], ["2027-01-12", "CL" as const]]),
+    holidays: new Map([["2027-01-11", "Company day"]]),
+    weeklyOffDays: [0],
+  };
+  const status = (d: string) => summarizeDay(d, [], "2027-02-01", undefined, undefined, ctx).status;
+  it("a holiday inside the range is a holiday, not leave", () => assert.equal(status("2027-01-11"), "HOLIDAY"));
+  it("a Sunday inside the range is a weekly off, not leave", () => assert.equal(status("2027-01-10"), "WEEKLY_OFF"));
+  it("the other days are leave", () => {
+    assert.equal(status("2027-01-09"), "CL");
+    assert.equal(status("2027-01-12"), "CL");
   });
 });

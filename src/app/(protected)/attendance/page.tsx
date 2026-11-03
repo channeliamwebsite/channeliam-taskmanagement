@@ -6,7 +6,9 @@ import { HistoryTable, MonthCalendar, WeekList } from "@/components/attendance/a
 import { CheckInCard } from "@/components/attendance/check-in-card";
 import { ROLE_LABELS } from "@/lib/auth/roles";
 import { monthRange, parseMonth, summarizeDay, weekDates, type DaySummary } from "@/lib/attendance";
-import { listMyAttendance } from "@/lib/data/attendance";
+import { getWorkPolicy, listMyAttendance } from "@/lib/data/attendance";
+import { listHolidays, listLeaveForUser } from "@/lib/data/hr";
+import { approvedLeaveByDate, holidaysByDate } from "@/lib/hr/leave";
 import { getMyWorkspaces } from "@/lib/data/workspace";
 import { BUSINESS_TIMEZONE, addDaysISO, displayName, formatDate, todayISO } from "@/lib/domain";
 
@@ -28,16 +30,23 @@ export default async function AttendancePage({ searchParams }: PageProps<"/atten
   const from = [first, week[0]!].sort()[0]!;
   const to = [last, week[6]!].sort().at(-1)!;
 
-  const [sessions, workspaces] = await Promise.all([listMyAttendance(session.user.id, from, to), getMyWorkspaces()]);
+  const [sessions, workspaces, policy, leave, holidays] = await Promise.all([
+    listMyAttendance(session.user.id, from, to),
+    getMyWorkspaces(),
+    getWorkPolicy(),
+    listLeaveForUser(session.user.id, from, to),
+    listHolidays(from, to),
+  ]);
+  // Approved leave, holidays and weekly offs shape days without attendance (034).
+  const context = { leave: approvedLeaveByDate(leave), holidays: holidaysByDate(holidays), weeklyOffDays: policy.weeklyOffDays };
   const workspaceNames = new Map(workspaces.map((w) => [w.id, w.name]));
 
   const dates = new Set([...week, ...sessions.map((s) => s.workDate)]);
   for (let d = first; d <= last; d = addDaysISO(d, 1)) dates.add(d);
-  const days = new Map<string, DaySummary>([...dates].map((d) => [d, summarizeDay(d, sessions, today, now)]));
+  const days = new Map<string, DaySummary>([...dates].map((d) => [d, summarizeDay(d, sessions, today, now, policy, context)]));
 
   const open = sessions.find((s) => !s.checkOutAt) ?? null;
   const todays = days.get(today)!;
-  const closedToday = todays.sessions.filter((s) => s.checkOutAt);
   const monthSessions = sessions.filter((s) => s.workDate >= first && s.workDate <= last);
   const name = displayName({ full_name: session.profile.fullName, email: session.profile.email });
   const profileLine = [session.profile.jobTitle, session.profile.department, session.profile.team].filter(Boolean).join(" · ");
@@ -54,11 +63,10 @@ export default async function AttendancePage({ searchParams }: PageProps<"/atten
             timeZone={timeZone}
             today={today}
             serverNow={now.toISOString()}
+            todaySessions={todays.sessions}
             openSession={open}
             openWorkspaceName={open ? (workspaceNames.get(open.workspaceId) ?? null) : null}
-            closedSecondsToday={closedToday.reduce((sum, s) => sum + (Date.parse(s.checkOutAt!) - Date.parse(s.checkInAt)) / 1000, 0)}
-            firstCheckInToday={todays.firstCheckIn}
-            lastCheckOutToday={todays.lastCheckOut}
+            policy={policy}
           />
           <Section title="This week">
             <WeekList days={week.map((d) => days.get(d)!)} today={today} timeZone={timeZone} />

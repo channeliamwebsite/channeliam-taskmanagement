@@ -6,7 +6,13 @@ import {
   Bug,
   CalendarDays,
   CalendarClock,
+  CalendarHeart,
+  CalendarOff,
   CheckSquare,
+  ClipboardCheck,
+  Contact,
+  FileSpreadsheet,
+  IdCard,
   FolderKanban,
   Inbox,
   KanbanSquare,
@@ -43,6 +49,12 @@ const ICONS = {
   reports: BarChart3,
   settings: Settings,
   bugs: Bug,
+  leave: CalendarOff,
+  profile: IdCard,
+  myreports: FileSpreadsheet,
+  teamattendance: ClipboardCheck,
+  employees: Contact,
+  holidays: CalendarHeart,
 } satisfies Record<string, LucideIcon>;
 
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number };
@@ -60,8 +72,10 @@ function useIsActive(sections: NavSection[]) {
   };
   return (item: NavItem) => {
     if (item.href.includes("?")) return queryMatch(item.href);
-    const pathMatch = pathname === item.href || pathname.startsWith(`${item.href}/`);
-    return pathMatch && !all.some((o) => o !== item && o.href.includes("?") && queryMatch(o.href));
+    const pathMatch = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+    // A nested link (e.g. /attendance/leave) wins over its parent (/attendance).
+    const deeper = all.some((o) => o !== item && !o.href.includes("?") && o.href.startsWith(`${item.href}/`) && pathMatch(o.href));
+    return pathMatch(item.href) && !deeper && !all.some((o) => o !== item && o.href.includes("?") && queryMatch(o.href));
   };
 }
 

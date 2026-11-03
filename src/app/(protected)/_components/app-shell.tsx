@@ -55,8 +55,6 @@ export async function AppShell({ children }: { children: ReactNode }) {
       ...(role === "INDIVIDUAL" ? [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" } as NavItem] : []),
       { href: "/tasks", label: "My Tasks", icon: "tasks" },
       { href: "/calendar", label: "Calendar", icon: "calendar" },
-      // Everyone records their own attendance, super admins included.
-      { href: "/attendance", label: "Attendance", icon: "attendance" },
       { href: "/inbox", label: "Inbox", icon: "inbox", badge: notifications.unread },
       ...(permissions.viewTeamReports ? [] : [{ href: "/reports", label: "Daily Update", icon: "reports" } as NavItem]),
     ],
@@ -68,6 +66,28 @@ export async function AppShell({ children }: { children: ReactNode }) {
       { href: "/team", label: role === "SUPER_ADMIN" ? "Employees" : "Team", icon: "team" },
       { href: "/reports", label: "Daily Updates", icon: "reports" },
     ],
+  };
+  // Everyone records their own attendance, super admins included. Super
+  // admins also get the company-wide HR pages (the /hr routes check the role).
+  const myAttendance: NavItem[] = [
+    { href: "/attendance", label: "My Attendance", icon: "attendance" },
+    { href: "/attendance/leave", label: role === "SUPER_ADMIN" ? "My Leave" : "Leave Applications", icon: "leave" },
+    { href: "/attendance/profile", label: "My Profile", icon: "profile" },
+    { href: "/attendance/reports", label: "My Reports", icon: "myreports" },
+  ];
+  const attendanceHr: NavSection = {
+    title: "Attendance & HR",
+    items:
+      role === "SUPER_ADMIN"
+        ? [
+            { href: "/hr", label: "Team Attendance", icon: "teamattendance" },
+            { href: "/hr/leave", label: "Leave Applications", icon: "leave" },
+            { href: "/hr/employees", label: "Employee Profiles", icon: "employees" },
+            { href: "/hr/holidays", label: "Public Holidays", icon: "holidays" },
+            { href: "/hr/reports", label: "Monthly Reports", icon: "myreports" },
+            ...myAttendance,
+          ]
+        : myAttendance,
   };
   const workspaceNav: NavSection = {
     title: "Workspace",
@@ -90,10 +110,10 @@ export async function AppShell({ children }: { children: ReactNode }) {
   // Super admins: the team first, then their own work.
   const sections: NavSection[] =
     role === "INDIVIDUAL"
-      ? [myWork, settings]
+      ? [myWork, attendanceHr, settings]
       : role === "ADMIN"
-        ? [myWork, team, workspaceNav, settings]
-        : [team, myWork, workspaceNav, settings];
+        ? [myWork, attendanceHr, team, workspaceNav, settings]
+        : [team, myWork, attendanceHr, workspaceNav, settings];
   const switcher = <WorkspaceSwitcher workspaces={workspaces} activeId={active?.id ?? null} />;
   const name = displayName({ full_name: session.profile.fullName, email: session.profile.email });
 

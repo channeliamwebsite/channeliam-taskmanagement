@@ -57,11 +57,14 @@ select throws_ok($$ insert into public.attendance_audit_log (action, record_type
 select lives_ok($$ select public.attendance_check_out() $$, 'iv checks out');
 select is((select count(*)::int from public.attendance_sessions where check_out_at is null), 0, 'no session is open after check-out');
 select throws_ok($$ select public.attendance_check_out() $$, '23514', null, 'a second check-out is refused');
-select lives_ok($$ select public.attendance_check_in('e2000000-0000-4000-8000-000000000001') $$,
-  'checking in again after checking out starts a new session (multiple sessions a day)');
-select is((select count(*)::int from public.attendance_sessions), 2, 'iv now has two sessions');
+-- Since 033 (decided 2026-11-03) there is one session per day: checking in
+-- again after checking out the same day is refused.
+select throws_ok($$ select public.attendance_check_in('e2000000-0000-4000-8000-000000000001') $$,
+  '23505', 'You have already checked out today. Attendance allows one check-in per day.',
+  'checking in again after checking out the same day is refused (one session per day, 033)');
+select is((select count(*)::int from public.attendance_sessions), 1, 'iv still has one session');
 select is((select string_agg(action, ',' order by id) from public.attendance_audit_log),
-  'CHECK_IN,CHECK_OUT,CHECK_IN', 'each check-in and check-out is in iv''s audit history');
+  'CHECK_IN,CHECK_OUT', 'each check-in and check-out is in iv''s audit history');
 select is((select count(*)::int from public.attendance_audit_log where actor_id is distinct from 'e1000000-0000-4000-8000-000000000003'), 0,
   'with iv as the actor');
 
@@ -90,8 +93,8 @@ select is((select count(*)::int from public.attendance_sessions), 0, 'another wo
 
 set local request.jwt.claims to '{"sub":"e1000000-0000-4000-8000-000000000006","role":"authenticated"}';
 select is((select count(*)::int from public.attendance_sessions where user_id in (
-  'e1000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000004')), 4,
-  'a super admin sees attendance company-wide, even outside their workspaces');
+  'e1000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000004')), 3,
+  'a super admin sees attendance company-wide, even outside their workspaces (one session each since 033)');
 select ok((select count(*) from public.attendance_audit_log) >= 6, 'and the whole attendance audit log');
 select throws_ok($$ select public.attendance_check_in('e2000000-0000-4000-8000-000000000001') $$,
   '42501', null, 'but records their own attendance only where they are a member');
@@ -106,8 +109,9 @@ set local request.jwt.claims to '';
 select throws_ok($$ insert into public.attendance_sessions (workspace_id, user_id, work_date)
                    values ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000004', current_date) $$,
   null, null, 'a second open session is impossible even for trusted writes');
+-- ...0004 still has an open session, so a closed one spanning now overlaps it.
 select throws_ok($$ insert into public.attendance_sessions (workspace_id, user_id, work_date, check_in_at, check_out_at)
-                   values ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000003', current_date,
+                   values ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000004', current_date,
                            now() - interval '1 minute', now() + interval '1 hour') $$,
   '23P01', null, 'overlapping sessions are impossible');
 select throws_ok($$ insert into public.attendance_sessions (workspace_id, user_id, work_date, check_in_at, check_out_at)

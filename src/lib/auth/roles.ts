@@ -125,4 +125,6 @@ export type Permission = keyof Permissions;
 export const ROUTE_ROLES: Record<string, readonly UserRole[]> = {
   "/team": ["SUPER_ADMIN", "ADMIN"],
   "/team-today": ["SUPER_ADMIN", "ADMIN"],
+  // Attendance & HR administration: super admins only (034, decided 2026-11-03).
+  "/hr": ["SUPER_ADMIN"],
 };

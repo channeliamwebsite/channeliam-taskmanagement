@@ -149,6 +149,49 @@ export type Database = {
           },
         ]
       }
+      attendance_breaks: {
+        Row: {
+          created_at: string
+          ended_at: string | null
+          id: string
+          session_id: string
+          started_at: string
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          session_id: string
+          started_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          session_id?: string
+          started_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_breaks_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_breaks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendance_sessions: {
         Row: {
           check_in_at: string
@@ -395,6 +438,356 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_employee_identity: {
+        Row: {
+          aadhaar_last4: string | null
+          pan_ciphertext: string | null
+          pan_key_version: number | null
+          pan_last4: string | null
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          aadhaar_last4?: string | null
+          pan_ciphertext?: string | null
+          pan_key_version?: number | null
+          pan_last4?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          aadhaar_last4?: string | null
+          pan_ciphertext?: string | null
+          pan_key_version?: number | null
+          pan_last4?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_employee_identity_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_employee_identity_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_employee_profiles: {
+        Row: {
+          address: string | null
+          created_at: string
+          date_of_birth: string | null
+          employee_code: string
+          employment_status: string
+          employment_type: string
+          gender: string | null
+          joining_date: string | null
+          personal_email: string | null
+          phone: string | null
+          photo_path: string | null
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          address?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          employee_code?: string
+          employment_status?: string
+          employment_type?: string
+          gender?: string | null
+          joining_date?: string | null
+          personal_email?: string | null
+          phone?: string | null
+          photo_path?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          employee_code?: string
+          employment_status?: string
+          employment_type?: string
+          gender?: string | null
+          joining_date?: string | null
+          personal_email?: string | null
+          phone?: string | null
+          photo_path?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_employee_profiles_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_employee_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_leave_allowances: {
+        Row: {
+          days: number
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+          year: number
+        }
+        ComputedFields: never
+        Insert: {
+          days: number
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+          year: number
+        }
+        Update: {
+          days?: number
+          leave_type?: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_allowances_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_allowances_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_leave_applications: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          end_date: string
+          id: string
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          reason: string
+          rejection_reason: string | null
+          start_date: string
+          status: Database["public"]["Enums"]["hr_leave_status"]
+          updated_at: string
+          user_id: string
+          working_days: number
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          end_date: string
+          id?: string
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          reason: string
+          rejection_reason?: string | null
+          start_date: string
+          status?: Database["public"]["Enums"]["hr_leave_status"]
+          updated_at?: string
+          user_id: string
+          working_days: number
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          end_date?: string
+          id?: string
+          leave_type?: Database["public"]["Enums"]["hr_leave_type"]
+          reason?: string
+          rejection_reason?: string | null
+          start_date?: string
+          status?: Database["public"]["Enums"]["hr_leave_status"]
+          updated_at?: string
+          user_id?: string
+          working_days?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_applications_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_applications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_leave_policies: {
+        Row: {
+          annual_allowance: number | null
+          is_paid: boolean
+          label: string
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at: string
+          updated_by: string | null
+          uses_balance: boolean
+        }
+        ComputedFields: never
+        Insert: {
+          annual_allowance?: number | null
+          is_paid: boolean
+          label: string
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at?: string
+          updated_by?: string | null
+          uses_balance: boolean
+        }
+        Update: {
+          annual_allowance?: number | null
+          is_paid?: boolean
+          label?: string
+          leave_type?: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at?: string
+          updated_by?: string | null
+          uses_balance?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_policies_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_public_holidays: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          holiday_date: string
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+          updated_by: string | null
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          holiday_date: string
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          holiday_date?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_public_holidays_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_public_holidays_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_settings: {
+        Row: {
+          break_allowance_minutes: number
+          id: boolean
+          scheduled_minutes: number
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+          weekly_off_days: number[]
+        }
+        ComputedFields: never
+        Insert: {
+          break_allowance_minutes?: number
+          id?: boolean
+          scheduled_minutes?: number
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          weekly_off_days?: number[]
+        }
+        Update: {
+          break_allowance_minutes?: number
+          id?: boolean
+          scheduled_minutes?: number
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          weekly_off_days?: number[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1250,6 +1643,8 @@ export type Database = {
     Functions: {
       attendance_check_in: { Args: { p_workspace_id: string }; Returns: string }
       attendance_check_out: { Args: Record<PropertyKey, never>; Returns: string }
+      attendance_end_break: { Args: Record<PropertyKey, never>; Returns: string }
+      attendance_start_break: { Args: Record<PropertyKey, never>; Returns: string }
       create_task: {
         Args: {
           p_assignee_ids: string[]
@@ -1296,6 +1691,22 @@ export type Database = {
           id: string
         }[]
       }
+      hr_apply_leave: { Args: { p_end: string; p_reason: string; p_start: string; p_type: Database["public"]["Enums"]["hr_leave_type"] }; Returns: string }
+      hr_cancel_leave: { Args: { p_id: string }; Returns: undefined }
+      hr_decide_leave: { Args: { p_approve: boolean; p_id: string; p_rejection_reason?: string }; Returns: undefined }
+      hr_leave_balance: {
+        Args: { p_user_id?: string; p_year?: number }
+        Returns: {
+          allowance: number
+          approved: number
+          available: number
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          pending: number
+        }[]
+      }
+      hr_log_pan_reveal: { Args: { p_reason: string; p_user_id: string }; Returns: undefined }
+      hr_set_identity: { Args: { p_aadhaar_last4: string; p_pan_ciphertext: string; p_pan_key_version: number; p_pan_last4: string; p_update_aadhaar: boolean; p_update_pan: boolean; p_user_id: string }; Returns: undefined }
+      hr_working_days: { Args: { p_end: string; p_start: string }; Returns: number }
       set_task_assignees: {
         Args: { p_primary_id?: string; p_task_id: string; p_user_ids: string[] }
         Returns: undefined
@@ -1360,6 +1771,15 @@ export type Database = {
         | "START_TO_START"
         | "FINISH_TO_FINISH"
         | "START_TO_FINISH"
+      hr_leave_status:
+        | "PENDING"
+        | "APPROVED"
+        | "REJECTED"
+        | "CANCELLED"
+      hr_leave_type:
+        | "CL"
+        | "LWP"
+        | "WFH"
       notification_type:
         | "TASK_ASSIGNED"
         | "TASK_UNASSIGNED"
@@ -1567,6 +1987,8 @@ export const Constants = {
         "FINISH_TO_FINISH",
         "START_TO_FINISH",
       ],
+      hr_leave_status: ["PENDING", "APPROVED", "REJECTED", "CANCELLED"],
+      hr_leave_type: ["CL", "LWP", "WFH"],
       notification_type: [
         "TASK_ASSIGNED",
         "TASK_UNASSIGNED",

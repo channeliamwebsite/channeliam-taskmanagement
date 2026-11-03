@@ -107,6 +107,12 @@ describe("roles and permissions", () => {
     assert.equal(hasRole("INDIVIDUAL", ROUTE_ROLES["/team"]!), false);
     assert.equal(hasRole("ADMIN", ROUTE_ROLES["/team"]!), true);
   });
+
+  it("restricts the HR dashboard and company-wide HR pages to super admins", () => {
+    assert.equal(hasRole("SUPER_ADMIN", ROUTE_ROLES["/hr"]!), true);
+    assert.equal(hasRole("ADMIN", ROUTE_ROLES["/hr"]!), false);
+    assert.equal(hasRole("INDIVIDUAL", ROUTE_ROLES["/hr"]!), false);
+  });
 });
 
 describe("login validation", () => {

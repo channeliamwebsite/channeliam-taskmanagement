@@ -50,7 +50,8 @@ function validate(input: ProjectInput) {
 export async function createProject(workspaceId: string, input: ProjectInput): Promise<ActionResult<{ id: string }>> {
   const actor = await getActor();
   if (!actor.ok) return actor;
-  if (actor.profile.role === "INDIVIDUAL") return fail("You don't have permission to create projects.");
+  // Super admins, admins with can_create_projects and individuals granted
+  // can_create_clients_projects (028); RLS decides.
   if (!isUuid(workspaceId)) return fail("Invalid workspace.");
   const fields = validate(input);
   if (!fields.ok) return fields;
@@ -113,6 +114,42 @@ export async function deleteProject(projectId: string): Promise<ActionResult> {
 
   const { data, error } = await actor.supabase.from("projects").delete().eq("id", projectId).select("id");
   if (error) return fail(dbError(error, "Could not delete the project."));
+  if (!data.length) return fail(NOT_PERMITTED);
+  refresh();
+  return ok();
+}
+
+/**
+ * Gives someone from another workspace access to one project (030), so the
+ * people managing its tasks can assign them. Super admins only; the database
+ * refuses members of the workspace and inactive employees, and audits it.
+ */
+export async function grantProjectAccess(projectId: string, userId: string): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can give project access.");
+  if (!isUuid(projectId) || !isUuid(userId)) return fail("Invalid request.");
+  const { error } = await actor.supabase
+    .from("project_collaborators")
+    .insert({ project_id: projectId, user_id: userId, granted_by: actor.userId });
+  if (error) return fail(error.code === "23505" ? "This person already has access." : dbError(error, "Could not give access."));
+  refresh();
+  return ok();
+}
+
+/** Removes project access (030). Refused while the person has open assignments in the project. */
+export async function revokeProjectAccess(projectId: string, userId: string): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can remove project access.");
+  if (!isUuid(projectId) || !isUuid(userId)) return fail("Invalid request.");
+  const { data, error } = await actor.supabase
+    .from("project_collaborators")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .select("user_id");
+  if (error) return fail(dbError(error, "Could not remove access."));
   if (!data.length) return fail(NOT_PERMITTED);
   refresh();
   return ok();

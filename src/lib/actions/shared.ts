@@ -39,6 +39,8 @@ const SAFE_DB_MESSAGES = [
   "Project owner must be an active member",
   "Only a super admin can change",
   "Super admins cannot change their own role",
+  "At least one active super admin must remain",
+  "You can only add subtasks to tasks you manage",
   "A task cannot be moved to another project",
   "Task dependencies cannot contain cycles",
   "Reporting lines cannot contain cycles",
@@ -48,7 +50,49 @@ const SAFE_DB_MESSAGES = [
   "permission to assign this task",
   "permission to remove some assignees",
   "The default General project cannot be deleted",
+  "You are already checked in",
+  "You are not checked in",
+  "You have already checked out today",
+  "Check in before starting a break",
+  "You are already on a break",
+  "You are not on a break",
+  "There are no working days in these dates",
+  "A leave application must stay within one calendar year",
+  "You already have a pending or approved application",
+  "Not enough Casual Leave",
+  "Only a super admin can approve or reject leave",
+  "You cannot approve or reject your own leave application",
+  "This application has already been decided or cancelled",
+  "Only a pending application can be cancelled",
+  "Give a reason for the rejection",
+  "These dates no longer contain working days",
+  "Leave application not found",
+  "The end date is before the start date",
+  "Employee IDs cannot be changed",
+  "Only a super admin can change identity details",
+  "Only a super admin can view a full PAN",
+  "Give a reason for viewing the full PAN",
+  "No PAN is recorded for this employee",
+  "You can only record attendance in a workspace you belong to",
+  "Archive it instead of deleting it",
+  "Cancel it instead of deleting it",
+  "Deactivate it instead of deleting it",
+  "Participants must be active members of the meeting's workspace",
+  "still has open assignments in the project",
+  "already a member of the project's workspace",
+  "Only active employees can be given project access",
 ];
+
+/**
+ * A refused change is rolled back, so it leaves no activity_logs entry (017).
+ * Refusals by the last-super-admin guard (015) are written to the server log
+ * instead, with ids only.
+ */
+export function logGuardRefusal(action: string, actorId: string, targetId: string, error: PostgrestError | null) {
+  if (error?.message?.includes("At least one active super admin must remain")) {
+    console.warn("[audit] refused", JSON.stringify({ action, actorId, targetId, reason: "last_active_super_admin" }));
+  }
+}
 
 /** Maps a database error to a user-facing message without leaking SQL details. */
 export function dbError(error: PostgrestError | null, fallback = "Something went wrong. Please try again.") {

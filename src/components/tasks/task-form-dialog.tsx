@@ -62,6 +62,8 @@ type Props = {
       mode: "create";
       workspaceId?: string;
       projects: ProjectOption[];
+      /** Every client of the workspace, including ones without projects yet. */
+      clients?: { id: string; name: string }[];
       defaultProjectId?: string;
       defaultScheduledDate?: string;
       parentTask?: { id: string; title: string; projectId: string } | null;
@@ -111,8 +113,9 @@ export function TaskFormDialog(props: Props) {
   const [clientFilter, setClientFilter] = useState(
     () => projects.find((p) => p.id === initialProject)?.clientId ?? "",
   );
-  // Everyday tasks only need the basics; project/client/parent/status/start
-  // stay available behind "More options".
+  // Admins (who assign work) always see Client and Project; for an
+  // individual's own task they stay behind "More options" with parent/status.
+  const showClientProject = !selfOnly && projects.length > 0;
   const [showMore, setShowMore] = useState(initialProject !== GENERAL);
   const [parentOptions, setParentOptions] = useState<{ id: string; title: string }[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
@@ -121,8 +124,11 @@ export function TaskFormDialog(props: Props) {
   const [conflict, setConflict] = useState(false);
 
   const clientMap = new Map<string, string>();
-  for (const p of projects) if (p.clientId && p.clientName) clientMap.set(p.clientId, p.clientName);
+  for (const c of (props.mode === "create" && props.clients) || []) clientMap.set(c.id, c.name);
+  for (const p of projects) if (p.clientId && p.clientName && !clientMap.has(p.clientId)) clientMap.set(p.clientId, p.clientName);
   const clients = [...clientMap.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  // A specific client: its own projects only (the General project belongs to no client).
+  const clientChosen = clientFilter !== "" && clientFilter !== NO_CLIENT;
   const otherProjects = projects.filter((p) => !p.isDefault);
   const hasUnclientedProjects = otherProjects.some((p) => !p.clientId);
   const visibleProjects = otherProjects.filter(
@@ -131,7 +137,7 @@ export function TaskFormDialog(props: Props) {
   const effectiveProjectId = projectId || generalProject?.id || "";
 
   // Parent-task choices for the chosen project (admins, create mode, when expanded).
-  const loadParents = props.mode === "create" && !props.parentTask && props.open && showMore;
+  const loadParents = props.mode === "create" && !props.parentTask && props.open && (showMore || showClientProject);
   useEffect(() => {
     if (!loadParents || !effectiveProjectId) return;
     let cancelled = false;
@@ -145,6 +151,58 @@ export function TaskFormDialog(props: Props) {
 
   const set = <K extends keyof TaskFormValues>(key: K, value: TaskFormValues[K]) =>
     setValues((v) => ({ ...v, [key]: value }));
+
+  const clientProjectFields = (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid gap-1.5">
+        <Label htmlFor="task-client">Client</Label>
+        <NativeSelect
+          id="task-client"
+          value={clientFilter}
+          onChange={(e) => {
+            const next = e.target.value;
+            setClientFilter(next);
+            // A client with exactly one project: preselect it.
+            const own = otherProjects.filter((p) => p.clientId === next);
+            setProjectId(own.length === 1 ? own[0]!.id : GENERAL);
+            set("parentTaskId", "");
+          }}
+        >
+          <option value="">All clients</option>
+          {clients.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+          {hasUnclientedProjects ? <option value={NO_CLIENT}>Internal / no client</option> : null}
+        </NativeSelect>
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor="task-project">Project</Label>
+        <NativeSelect
+          id="task-project"
+          value={projectId}
+          onChange={(e) => {
+            setProjectId(e.target.value);
+            set("parentTaskId", "");
+          }}
+        >
+          {clientChosen ? (
+            <option value={GENERAL} disabled>
+              {visibleProjects.length ? "Select a project" : "No projects for this client"}
+            </option>
+          ) : (
+            <option value={GENERAL}>{generalProject?.name ?? "General"} (default)</option>
+          )}
+          {visibleProjects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </NativeSelect>
+      </div>
+    </div>
+  );
 
   function reset() {
     setValues(initialValues);
@@ -167,6 +225,11 @@ export function TaskFormDialog(props: Props) {
     startTransition(async () => {
       if (props.mode === "create") {
         if (!selfOnly && assignees.length === 0) return setError("Assign at least one person.");
+        if (!props.parentTask && clientChosen && !visibleProjects.some((p) => p.id === projectId)) {
+          return setError(
+            visibleProjects.length ? "Choose one of this client's projects." : "This client has no projects yet. Create a project for it first.",
+          );
+        }
         const result = await createTask({
           projectId: props.parentTask?.projectId ?? (projectId || null),
           workspaceId: props.workspaceId ?? null,
@@ -330,6 +393,8 @@ export function TaskFormDialog(props: Props) {
             />
           </div>
 
+          {props.mode === "create" && !props.parentTask && showClientProject ? clientProjectFields : null}
+
           {props.mode === "create" ? (
             selfOnly ? (
               <p className="text-sm text-muted-foreground">Assigned to you.</p>
@@ -405,46 +470,7 @@ export function TaskFormDialog(props: Props) {
                   </button>
                   {showMore ? (
                     <>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div className="grid gap-1.5">
-                          <Label htmlFor="task-client">Client</Label>
-                          <NativeSelect
-                            id="task-client"
-                            value={clientFilter}
-                            onChange={(e) => {
-                              setClientFilter(e.target.value);
-                              setProjectId(GENERAL);
-                              set("parentTaskId", "");
-                            }}
-                          >
-                            <option value="">All clients</option>
-                            {clients.map(([id, name]) => (
-                              <option key={id} value={id}>
-                                {name}
-                              </option>
-                            ))}
-                            {hasUnclientedProjects ? <option value={NO_CLIENT}>Internal / no client</option> : null}
-                          </NativeSelect>
-                        </div>
-                        <div className="grid gap-1.5">
-                          <Label htmlFor="task-project">Project</Label>
-                          <NativeSelect
-                            id="task-project"
-                            value={projectId}
-                            onChange={(e) => {
-                              setProjectId(e.target.value);
-                              set("parentTaskId", "");
-                            }}
-                          >
-                            <option value={GENERAL}>{generalProject?.name ?? "General"} (default)</option>
-                            {visibleProjects.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </NativeSelect>
-                        </div>
-                      </div>
+                      {showClientProject ? null : clientProjectFields}
                       {parentOptions.length ? (
                         <div className="grid gap-1.5">
                           <Label htmlFor="task-parent-create">Parent task (optional)</Label>

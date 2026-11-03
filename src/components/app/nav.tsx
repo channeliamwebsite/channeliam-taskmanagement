@@ -5,7 +5,14 @@ import {
   Briefcase,
   Bug,
   CalendarDays,
+  CalendarClock,
+  CalendarHeart,
+  CalendarOff,
   CheckSquare,
+  ClipboardCheck,
+  Contact,
+  FileSpreadsheet,
+  IdCard,
   FolderKanban,
   Inbox,
   KanbanSquare,
@@ -31,6 +38,7 @@ const ICONS = {
   dashboard: LayoutDashboard,
   myday: Sun,
   calendar: CalendarDays,
+  attendance: CalendarClock,
   clients: Briefcase,
   tasks: CheckSquare,
   board: KanbanSquare,
@@ -41,6 +49,12 @@ const ICONS = {
   reports: BarChart3,
   settings: Settings,
   bugs: Bug,
+  leave: CalendarOff,
+  profile: IdCard,
+  myreports: FileSpreadsheet,
+  teamattendance: ClipboardCheck,
+  employees: Contact,
+  holidays: CalendarHeart,
 } satisfies Record<string, LucideIcon>;
 
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number };
@@ -58,8 +72,10 @@ function useIsActive(sections: NavSection[]) {
   };
   return (item: NavItem) => {
     if (item.href.includes("?")) return queryMatch(item.href);
-    const pathMatch = pathname === item.href || pathname.startsWith(`${item.href}/`);
-    return pathMatch && !all.some((o) => o !== item && o.href.includes("?") && queryMatch(o.href));
+    const pathMatch = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+    // A nested link (e.g. /attendance/leave) wins over its parent (/attendance).
+    const deeper = all.some((o) => o !== item && !o.href.includes("?") && o.href.startsWith(`${item.href}/`) && pathMatch(o.href));
+    return pathMatch(item.href) && !deeper && !all.some((o) => o !== item && o.href.includes("?") && queryMatch(o.href));
   };
 }
 
@@ -114,18 +130,17 @@ function Brand() {
   );
 }
 
-export function Sidebar({ sections, workspaceSwitcher, footer }: { sections: NavSection[]; workspaceSwitcher: ReactNode; footer?: ReactNode }) {
+export function Sidebar({ sections, workspaceSwitcher }: { sections: NavSection[]; workspaceSwitcher: ReactNode }) {
   return (
     <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r bg-muted/30 px-3 py-4 lg:flex">
       <Brand />
       {workspaceSwitcher}
       <NavLinks sections={sections} />
-      {footer}
     </aside>
   );
 }
 
-export function MobileNav({ sections, workspaceSwitcher, footer }: { sections: NavSection[]; workspaceSwitcher: ReactNode; footer?: ReactNode }) {
+export function MobileNav({ sections, workspaceSwitcher }: { sections: NavSection[]; workspaceSwitcher: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -140,7 +155,6 @@ export function MobileNav({ sections, workspaceSwitcher, footer }: { sections: N
           </SheetHeader>
           {workspaceSwitcher}
           <NavLinks sections={sections} onNavigate={() => setOpen(false)} />
-          {footer}
         </SheetContent>
       </Sheet>
     </>

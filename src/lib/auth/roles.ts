@@ -67,6 +67,55 @@ export function getPermissions(role: UserRole) {
 }
 
 export type Permissions = ReturnType<typeof getPermissions>;
+
+/**
+ * Whether a user may edit a project, mirroring the projects update policy
+ * (migration 020): super admins; admins who own or created it; and admins who
+ * may create projects in that workspace, for any project but the General one.
+ * `mayCreate` is mayCreateProjects for the project's workspace.
+ */
+export function mayEditProject(
+  role: UserRole,
+  userId: string,
+  project: { ownerId: string | null; createdBy: string | null; isDefault: boolean },
+  mayCreate: boolean,
+) {
+  if (role === "SUPER_ADMIN") return true;
+  if (role !== "ADMIN") return false;
+  return project.ownerId === userId || project.createdBy === userId || (mayCreate && !project.isDefault);
+}
+
+/**
+ * Whether a user may create projects in a workspace, mirroring
+ * `private.can_create_project`: a super admin in any workspace (company-level
+ * since 025), an admin whose membership has `can_create_projects`, or an
+ * individual granted `can_create_clients_projects` (028, default off).
+ * `membership` is the user's own row in that workspace, or null when they are
+ * not a member.
+ */
+export function mayCreateProjects(
+  role: UserRole,
+  membership: { canCreateProjects: boolean; canCreateClientsProjects?: boolean } | null,
+) {
+  if (role === "SUPER_ADMIN") return true;
+  if (!membership) return false;
+  if (role === "INDIVIDUAL") return Boolean(membership.canCreateClientsProjects);
+  return role === "ADMIN" && membership.canCreateProjects;
+}
+
+/**
+ * Whether a user may create clients in a workspace, mirroring the clients
+ * insert policies: super admins anywhere, admins of the workspace, and
+ * individuals granted `can_create_clients_projects` (028).
+ */
+export function mayCreateClients(
+  role: UserRole,
+  membership: { canCreateClientsProjects?: boolean } | null,
+) {
+  if (role === "SUPER_ADMIN") return true;
+  if (!membership) return false;
+  return role === "ADMIN" || Boolean(membership.canCreateClientsProjects);
+}
 export type Permission = keyof Permissions;
 
 /**
@@ -76,4 +125,6 @@ export type Permission = keyof Permissions;
 export const ROUTE_ROLES: Record<string, readonly UserRole[]> = {
   "/team": ["SUPER_ADMIN", "ADMIN"],
   "/team-today": ["SUPER_ADMIN", "ADMIN"],
+  // Attendance & HR administration: super admins only (034, decided 2026-11-03).
+  "/hr": ["SUPER_ADMIN"],
 };

@@ -8,6 +8,7 @@ import { getTask } from "@/lib/data/tasks";
 import type { DeletionImpact } from "@/lib/deletion";
 import { isPriority, isTaskStatus, isTaskType, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
 import { EDITABLE_TASK_FIELDS, TASK_FIELD_LABELS, planTaskEdit, type EditableTaskValues } from "@/lib/task-edit";
+import { canManageTaskAs } from "@/lib/task-permissions";
 import type { Database } from "@/types/database";
 
 import {
@@ -141,6 +142,14 @@ export async function createTask(input: TaskInput): Promise<ActionResult<{ id: s
   if (isIndividual && fields.data.parent_task_id) {
     const { data: parent } = await supabase.from("tasks").select("created_by").eq("id", fields.data.parent_task_id).maybeSingle();
     if (parent?.created_by !== userId) return fail("You can only add subtasks to tasks you created.");
+  } else if (fields.data.parent_task_id) {
+    // Admins: only under tasks they manage (migration 018 enforces the same rule).
+    const { rows, error: parentError } = await withManageFacts(supabase, { taskId: fields.data.parent_task_id });
+    if (parentError) return fail(dbError(parentError));
+    const parent = rows[0];
+    if (!parent || !canManageTaskAs(profile.role, userId, parent)) return fail(SUBTASK_NOT_PERMITTED);
+    if (projectId !== null && parent.projectId !== projectId) return fail("Parent task must belong to the same project");
+    projectId = parent.projectId;
   }
   if (isIndividual && projectId !== null) {
     // Individuals may use the General project or any project they can already see (RLS-scoped read).
@@ -323,7 +332,7 @@ export async function getTaskDeletionImpact(taskId: string): Promise<ActionResul
   }
 }
 
-/** Deletes the task and, by cascade, its nested subtasks and their comments, time entries and links. */
+/** Deletes a task that has no history; tasks with history are cancelled instead (refused by migration 027). */
 export async function deleteTask(taskId: string): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor.ok) return actor;
@@ -388,6 +397,8 @@ export async function setTaskAssignees(taskId: string, assigneeIds: string[], pr
   if (!isUuid(taskId)) return fail("Invalid task.");
   const parsed = validateAssignees(assigneeIds, primaryId);
   if (!parsed.ok) return parsed;
+  // A task always keeps at least one assignee (migration 022 enforces this too).
+  if (parsed.data.ids.length === 0) return fail("Assign at least one person.");
 
   // One database transaction: removals, additions and the primary change all
   // succeed together or not at all (public.set_task_assignees, RLS applies).
@@ -450,21 +461,50 @@ export async function setTaskSchedule(taskId: string, scheduledDate: string | nu
   return ok();
 }
 
-/** Tasks in a project that can be chosen as a parent when creating a task. */
+const SUBTASK_NOT_PERMITTED = "You can only add subtasks to tasks you manage.";
+
+type Actor = Extract<Awaited<ReturnType<typeof getActor>>, { ok: true }>;
+
+const MANAGE_FACTS =
+  "id, title, project_id, created_by, projectInfo:projects!tasks_project_id_fkey(owner_id, created_by), assignees:task_assignees!task_assignees_task_id_fkey(user_id, assigned_by)";
+
+type ManageFactsRow = {
+  id: string;
+  title: string;
+  project_id: string;
+  created_by: string | null;
+  projectInfo: { owner_id: string | null; created_by: string | null } | null;
+  assignees: { user_id: string; assigned_by: string | null }[];
+};
+
+/** Tasks (RLS-scoped) with what canManageTaskAs needs: one task by id, or a project's open tasks. */
+async function withManageFacts(supabase: Actor["supabase"], by: { taskId: string } | { projectId: string }) {
+  const base = supabase.from("tasks").select(MANAGE_FACTS);
+  const { data, error } = await ("taskId" in by
+    ? base.eq("id", by.taskId)
+    : base.eq("project_id", by.projectId).not("status", "in", "(COMPLETED,CANCELLED)").order("title").limit(500));
+  const rows = ((data ?? []) as unknown as ManageFactsRow[]).map((r) => ({
+    id: r.id,
+    title: r.title,
+    projectId: r.project_id,
+    createdBy: r.created_by,
+    projectOwnerId: r.projectInfo?.owner_id ?? null,
+    projectCreatedBy: r.projectInfo?.created_by ?? null,
+    assignees: r.assignees.map((a) => ({ userId: a.user_id, assignedBy: a.assigned_by })),
+  }));
+  return { rows, error };
+}
+
+/** Tasks in a project that the caller may choose as a parent when creating a task. */
 export async function getParentTaskOptions(projectId: string): Promise<ActionResult<{ id: string; title: string }[]>> {
   const actor = await getActor();
   if (!actor.ok) return actor;
   if (!isUuid(projectId)) return fail("Invalid project.");
-  let query = actor.supabase
-    .from("tasks")
-    .select("id, title")
-    .eq("project_id", projectId)
-    .not("status", "in", "(COMPLETED,CANCELLED)")
-    .order("title")
-    .limit(500);
-  // Individuals may only nest under tasks they created themselves (RLS enforces this too).
-  if (actor.profile.role === "INDIVIDUAL") query = query.eq("created_by", actor.userId);
-  const { data, error } = await query;
+  const { supabase, userId, profile } = actor;
+  const { rows, error } = await withManageFacts(supabase, { projectId });
   if (error) return fail(dbError(error));
-  return ok(data);
+  // Individuals nest only under tasks they created; admins only under tasks
+  // they manage (both enforced by the database too).
+  const allowed = rows.filter((r) => (profile.role === "INDIVIDUAL" ? r.createdBy === userId : canManageTaskAs(profile.role, userId, r)));
+  return ok(allowed.map((r) => ({ id: r.id, title: r.title })));
 }

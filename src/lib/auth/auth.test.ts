@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { getPermissions, hasMinimumRole, hasRole, isRole, ROUTE_ROLES } from "./roles.ts";
+import { getPermissions, hasMinimumRole, hasRole, isRole, mayCreateClients, mayCreateProjects, mayEditProject, ROUTE_ROLES } from "./roles.ts";
 import { DEFAULT_AUTHENTICATED_ROUTE, isPublicRoute, requiresAuth, safeRedirectPath } from "./routes.ts";
 import { validateLogin, validateNewPassword } from "./validation.ts";
 
@@ -63,9 +63,55 @@ describe("roles and permissions", () => {
     assert.equal(getPermissions("SUPER_ADMIN").manageUsers, true);
   });
 
+  it("lets super admins and permitted admins create projects in their own workspaces only", () => {
+    const allowed = { canCreateProjects: true };
+    const notAllowed = { canCreateProjects: false };
+    assert.equal(mayCreateProjects("SUPER_ADMIN", notAllowed), true);
+    assert.equal(mayCreateProjects("ADMIN", allowed), true);
+    assert.equal(mayCreateProjects("ADMIN", notAllowed), false);
+    assert.equal(mayCreateProjects("INDIVIDUAL", allowed), false);
+    // Not a member of the workspace: refused for admins, as in RLS; super
+    // admins are company-level since migration 025.
+    assert.equal(mayCreateProjects("SUPER_ADMIN", null), true);
+    assert.equal(mayCreateProjects("ADMIN", null), false);
+    assert.equal(mayCreateProjects("INDIVIDUAL", null), false);
+  });
+
+  it("lets individuals create clients and projects only with the default-off grant (028)", () => {
+    const member = { canCreateProjects: true, canCreateClientsProjects: false };
+    const granted = { canCreateProjects: false, canCreateClientsProjects: true };
+    // can_create_projects (default true since 020) gives individuals nothing.
+    assert.equal(mayCreateProjects("INDIVIDUAL", member), false);
+    assert.equal(mayCreateClients("INDIVIDUAL", member), false);
+    assert.equal(mayCreateProjects("INDIVIDUAL", granted), true);
+    assert.equal(mayCreateClients("INDIVIDUAL", granted), true);
+    assert.equal(mayCreateClients("INDIVIDUAL", null), false);
+    // The individual grant does not change admins' project rule.
+    assert.equal(mayCreateProjects("ADMIN", granted), false);
+    assert.equal(mayCreateClients("ADMIN", { canCreateClientsProjects: false }), true);
+    assert.equal(mayCreateClients("ADMIN", null), false);
+    assert.equal(mayCreateClients("SUPER_ADMIN", null), true);
+  });
+
+  it("lets super admins, owners/creators and project-managing admins edit projects", () => {
+    const bySa = { ownerId: null, createdBy: "sa", isDefault: false };
+    assert.equal(mayEditProject("SUPER_ADMIN", "sa2", bySa, false), true);
+    assert.equal(mayEditProject("ADMIN", "ad", bySa, true), true, "a super admin's project, admin may manage projects");
+    assert.equal(mayEditProject("ADMIN", "ad", bySa, false), false, "restricted admin, not owner");
+    assert.equal(mayEditProject("ADMIN", "ad", { ...bySa, ownerId: "ad" }, false), true, "restricted admin who owns it");
+    assert.equal(mayEditProject("ADMIN", "ad", { ...bySa, isDefault: true }, true), false, "the General project");
+    assert.equal(mayEditProject("INDIVIDUAL", "iv", { ...bySa, ownerId: "iv", createdBy: "iv" }, true), false);
+  });
+
   it("restricts /team to admins and above", () => {
     assert.equal(hasRole("INDIVIDUAL", ROUTE_ROLES["/team"]!), false);
     assert.equal(hasRole("ADMIN", ROUTE_ROLES["/team"]!), true);
+  });
+
+  it("restricts the HR dashboard and company-wide HR pages to super admins", () => {
+    assert.equal(hasRole("SUPER_ADMIN", ROUTE_ROLES["/hr"]!), true);
+    assert.equal(hasRole("ADMIN", ROUTE_ROLES["/hr"]!), false);
+    assert.equal(hasRole("INDIVIDUAL", ROUTE_ROLES["/hr"]!), false);
   });
 });
 

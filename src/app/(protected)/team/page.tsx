@@ -236,6 +236,7 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
                             role: m.role,
                             isActive: m.isActive,
                             canCreateProjects: m.canCreateProjects,
+                            canCreateClientsProjects: m.canCreateClientsProjects,
                             jobTitle: m.jobTitle,
                             managerId: m.managerId,
                             team: m.team,

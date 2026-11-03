@@ -22,10 +22,12 @@ export type Database = {
           new_value: Json | null
           old_value: Json | null
           project_id: string | null
+          target_user_id: string | null
           task_id: string | null
           user_id: string | null
-          workspace_id: string
+          workspace_id: string | null
         }
+        ComputedFields: never
         Insert: {
           action: Database["public"]["Enums"]["activity_action"]
           created_at?: string
@@ -33,9 +35,10 @@ export type Database = {
           new_value?: Json | null
           old_value?: Json | null
           project_id?: string | null
+          target_user_id?: string | null
           task_id?: string | null
           user_id?: string | null
-          workspace_id: string
+          workspace_id?: string | null
         }
         Update: {
           action?: Database["public"]["Enums"]["activity_action"]
@@ -44,9 +47,10 @@ export type Database = {
           new_value?: Json | null
           old_value?: Json | null
           project_id?: string | null
+          target_user_id?: string | null
           task_id?: string | null
           user_id?: string | null
-          workspace_id?: string
+          workspace_id?: string | null
         }
         Relationships: [
           {
@@ -54,6 +58,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_logs_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -79,6 +90,154 @@ export type Database = {
           },
         ]
       }
+      attendance_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          details: Json
+          id: number
+          record_id: string | null
+          record_type: string
+          target_user_id: string | null
+          workspace_id: string | null
+        }
+        ComputedFields: never
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: never
+          record_id?: string | null
+          record_type: string
+          target_user_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: never
+          record_id?: string | null
+          record_type?: string
+          target_user_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_audit_log_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_audit_log_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_breaks: {
+        Row: {
+          created_at: string
+          ended_at: string | null
+          id: string
+          session_id: string
+          started_at: string
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          session_id: string
+          started_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          session_id?: string
+          started_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_breaks_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_breaks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_sessions: {
+        Row: {
+          check_in_at: string
+          check_out_at: string | null
+          created_at: string
+          id: string
+          user_id: string
+          work_date: string
+          workspace_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          check_in_at?: string
+          check_out_at?: string | null
+          created_at?: string
+          id?: string
+          user_id: string
+          work_date: string
+          workspace_id: string
+        }
+        Update: {
+          check_in_at?: string
+          check_out_at?: string | null
+          created_at?: string
+          id?: string
+          user_id?: string
+          work_date?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bug_reports: {
         Row: {
           created_at: string
@@ -92,6 +251,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           description: string
@@ -146,6 +306,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           contact_email?: string | null
           contact_name?: string | null
@@ -213,6 +374,7 @@ export type Database = {
           work_remaining: string | null
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           accomplishments?: string | null
           blockers?: string | null
@@ -280,10 +442,362 @@ export type Database = {
           },
         ]
       }
+      hr_employee_identity: {
+        Row: {
+          aadhaar_last4: string | null
+          pan_ciphertext: string | null
+          pan_key_version: number | null
+          pan_last4: string | null
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          aadhaar_last4?: string | null
+          pan_ciphertext?: string | null
+          pan_key_version?: number | null
+          pan_last4?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          aadhaar_last4?: string | null
+          pan_ciphertext?: string | null
+          pan_key_version?: number | null
+          pan_last4?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_employee_identity_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_employee_identity_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_employee_profiles: {
+        Row: {
+          address: string | null
+          created_at: string
+          date_of_birth: string | null
+          employee_code: string
+          employment_status: string
+          employment_type: string
+          gender: string | null
+          joining_date: string | null
+          personal_email: string | null
+          phone: string | null
+          photo_path: string | null
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          address?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          employee_code?: string
+          employment_status?: string
+          employment_type?: string
+          gender?: string | null
+          joining_date?: string | null
+          personal_email?: string | null
+          phone?: string | null
+          photo_path?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          employee_code?: string
+          employment_status?: string
+          employment_type?: string
+          gender?: string | null
+          joining_date?: string | null
+          personal_email?: string | null
+          phone?: string | null
+          photo_path?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_employee_profiles_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_employee_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_leave_allowances: {
+        Row: {
+          days: number
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+          year: number
+        }
+        ComputedFields: never
+        Insert: {
+          days: number
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+          year: number
+        }
+        Update: {
+          days?: number
+          leave_type?: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_allowances_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_allowances_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_leave_applications: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          end_date: string
+          id: string
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          reason: string
+          rejection_reason: string | null
+          start_date: string
+          status: Database["public"]["Enums"]["hr_leave_status"]
+          updated_at: string
+          user_id: string
+          working_days: number
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          end_date: string
+          id?: string
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          reason: string
+          rejection_reason?: string | null
+          start_date: string
+          status?: Database["public"]["Enums"]["hr_leave_status"]
+          updated_at?: string
+          user_id: string
+          working_days: number
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          end_date?: string
+          id?: string
+          leave_type?: Database["public"]["Enums"]["hr_leave_type"]
+          reason?: string
+          rejection_reason?: string | null
+          start_date?: string
+          status?: Database["public"]["Enums"]["hr_leave_status"]
+          updated_at?: string
+          user_id?: string
+          working_days?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_applications_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_applications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_leave_policies: {
+        Row: {
+          annual_allowance: number | null
+          is_paid: boolean
+          label: string
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at: string
+          updated_by: string | null
+          uses_balance: boolean
+        }
+        ComputedFields: never
+        Insert: {
+          annual_allowance?: number | null
+          is_paid: boolean
+          label: string
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at?: string
+          updated_by?: string | null
+          uses_balance: boolean
+        }
+        Update: {
+          annual_allowance?: number | null
+          is_paid?: boolean
+          label?: string
+          leave_type?: Database["public"]["Enums"]["hr_leave_type"]
+          updated_at?: string
+          updated_by?: string | null
+          uses_balance?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_policies_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_public_holidays: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          holiday_date: string
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+          updated_by: string | null
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          holiday_date: string
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          holiday_date?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_public_holidays_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_public_holidays_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_settings: {
+        Row: {
+          break_allowance_minutes: number
+          id: boolean
+          scheduled_minutes: number
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+          weekly_off_days: number[]
+        }
+        ComputedFields: never
+        Insert: {
+          break_allowance_minutes?: number
+          id?: boolean
+          scheduled_minutes?: number
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          weekly_off_days?: number[]
+        }
+        Update: {
+          break_allowance_minutes?: number
+          id?: boolean
+          scheduled_minutes?: number
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          weekly_off_days?: number[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       meeting_links: {
         Row: {
           created_at: string
           created_by: string | null
+          description: string | null
+          ends_at: string | null
           id: string
           is_active: boolean
           kind: string
@@ -297,9 +811,12 @@ export type Database = {
           url: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           created_by?: string | null
+          description?: string | null
+          ends_at?: string | null
           id?: string
           is_active?: boolean
           kind?: string
@@ -316,6 +833,8 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string | null
+          description?: string | null
+          ends_at?: string | null
           id?: string
           is_active?: boolean
           kind?: string
@@ -346,6 +865,50 @@ export type Database = {
           },
         ]
       }
+      meeting_participants: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          meeting_link_id: string
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          meeting_link_id: string
+          user_id: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          meeting_link_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_participants_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_participants_meeting_link_id_fkey"
+            columns: ["meeting_link_id"]
+            isOneToOne: false
+            referencedRelation: "meeting_links"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       meeting_records: {
         Row: {
           agenda: string | null
@@ -361,6 +924,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           agenda?: string | null
           created_at?: string
@@ -418,6 +982,7 @@ export type Database = {
           created_at: string
           id: string
           is_read: boolean
+          meeting_link_id: string | null
           message: string | null
           project_id: string | null
           read_at: string | null
@@ -427,10 +992,12 @@ export type Database = {
           type: Database["public"]["Enums"]["notification_type"]
           user_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           id?: string
           is_read?: boolean
+          meeting_link_id?: string | null
           message?: string | null
           project_id?: string | null
           read_at?: string | null
@@ -444,6 +1011,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_read?: boolean
+          meeting_link_id?: string | null
           message?: string | null
           project_id?: string | null
           read_at?: string | null
@@ -492,6 +1060,7 @@ export type Database = {
           team: string | null
           updated_at: string
         }
+        ComputedFields: never
         Insert: {
           avatar_url?: string | null
           created_at?: string
@@ -530,6 +1099,50 @@ export type Database = {
           },
         ]
       }
+      project_collaborators: {
+        Row: {
+          granted_at: string
+          granted_by: string | null
+          project_id: string
+          user_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          granted_at?: string
+          granted_by?: string | null
+          project_id: string
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string | null
+          project_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_collaborators_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_collaborators_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_collaborators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           client_id: string | null
@@ -548,6 +1161,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           client_id?: string | null
           client_name?: string | null
@@ -622,6 +1236,7 @@ export type Database = {
           task_id: string
           user_id: string
         }
+        ComputedFields: never
         Insert: {
           assigned_at?: string
           assigned_by?: string | null
@@ -673,6 +1288,7 @@ export type Database = {
           task_id: string
           uploaded_by: string | null
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           file_name: string
@@ -719,6 +1335,7 @@ export type Database = {
           updated_at: string
           user_id: string | null
         }
+        ComputedFields: never
         Insert: {
           comment: string
           created_at?: string
@@ -760,6 +1377,7 @@ export type Database = {
           id: string
           task_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           dependency_type?: Database["public"]["Enums"]["dependency_type"]
@@ -813,6 +1431,7 @@ export type Database = {
           updated_at: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
           actual_hours?: number
           completed_at?: string | null
@@ -897,6 +1516,7 @@ export type Database = {
           task_id: string
           user_id: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           description?: string | null
@@ -936,13 +1556,16 @@ export type Database = {
       }
       workspace_members: {
         Row: {
+          can_create_clients_projects: boolean
           can_create_projects: boolean
           created_at: string
           id: string
           user_id: string
           workspace_id: string
         }
+        ComputedFields: never
         Insert: {
+          can_create_clients_projects?: boolean
           can_create_projects?: boolean
           created_at?: string
           id?: string
@@ -950,6 +1573,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          can_create_clients_projects?: boolean
           can_create_projects?: boolean
           created_at?: string
           id?: string
@@ -983,6 +1607,7 @@ export type Database = {
           timezone: string
           updated_at: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           created_by?: string | null
@@ -1016,6 +1641,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      attendance_check_in: { Args: { p_workspace_id: string }; Returns: string }
+      attendance_check_out: { Args: Record<PropertyKey, never>; Returns: string }
+      attendance_end_break: { Args: Record<PropertyKey, never>; Returns: string }
+      attendance_start_break: { Args: Record<PropertyKey, never>; Returns: string }
       create_task: {
         Args: {
           p_assignee_ids: string[]
@@ -1062,6 +1691,30 @@ export type Database = {
           id: string
         }[]
       }
+      hr_apply_leave: { Args: { p_end: string; p_reason: string; p_start: string; p_type: Database["public"]["Enums"]["hr_leave_type"] }; Returns: string }
+      hr_cancel_leave: { Args: { p_id: string }; Returns: undefined }
+      hr_cl_credits: {
+        Args: { p_user_id?: string }
+        Returns: {
+          credit_month: string
+          expires_on: string
+          status: string
+        }[]
+      }
+      hr_decide_leave: { Args: { p_approve: boolean; p_id: string; p_rejection_reason?: string }; Returns: undefined }
+      hr_leave_balance: {
+        Args: { p_user_id?: string; p_year?: number }
+        Returns: {
+          allowance: number
+          approved: number
+          available: number
+          leave_type: Database["public"]["Enums"]["hr_leave_type"]
+          pending: number
+        }[]
+      }
+      hr_log_pan_reveal: { Args: { p_reason: string; p_user_id: string }; Returns: undefined }
+      hr_set_identity: { Args: { p_aadhaar_last4: string; p_pan_ciphertext: string; p_pan_key_version: number; p_pan_last4: string; p_update_aadhaar: boolean; p_update_pan: boolean; p_user_id: string }; Returns: undefined }
+      hr_working_days: { Args: { p_end: string; p_start: string }; Returns: number }
       set_task_assignees: {
         Args: { p_primary_id?: string; p_task_id: string; p_user_ids: string[] }
         Returns: undefined
@@ -1105,11 +1758,36 @@ export type Database = {
         | "PROJECT_UPDATED"
         | "PROJECT_STATUS_CHANGED"
         | "TASK_SCHEDULED"
+        | "TASK_DELETED"
+        | "PROJECT_DELETED"
+        | "CLIENT_CREATED"
+        | "CLIENT_UPDATED"
+        | "CLIENT_DELETED"
+        | "MEMBER_ADDED"
+        | "MEMBER_REMOVED"
+        | "MEMBER_PERMISSION_CHANGED"
+        | "EMPLOYEE_ROLE_CHANGED"
+        | "EMPLOYEE_DEACTIVATED"
+        | "EMPLOYEE_REACTIVATED"
+        | "EMPLOYEE_UPDATED"
+        | "WORKSPACE_CREATED"
+        | "WORKSPACE_UPDATED"
+        | "COLLABORATOR_ADDED"
+        | "COLLABORATOR_REMOVED"
       dependency_type:
         | "FINISH_TO_START"
         | "START_TO_START"
         | "FINISH_TO_FINISH"
         | "START_TO_FINISH"
+      hr_leave_status:
+        | "PENDING"
+        | "APPROVED"
+        | "REJECTED"
+        | "CANCELLED"
+      hr_leave_type:
+        | "CL"
+        | "LWP"
+        | "WFH"
       notification_type:
         | "TASK_ASSIGNED"
         | "TASK_UNASSIGNED"
@@ -1121,6 +1799,9 @@ export type Database = {
         | "PROJECT_UPDATED"
         | "MENTION"
         | "SYSTEM"
+        | "MEETING_SCHEDULED"
+        | "MEETING_UPDATED"
+        | "MEETING_CANCELLED"
       priority_level: "LOW" | "MEDIUM" | "HIGH" | "URGENT"
       project_status:
         | "PLANNING"
@@ -1291,6 +1972,22 @@ export const Constants = {
         "PROJECT_UPDATED",
         "PROJECT_STATUS_CHANGED",
         "TASK_SCHEDULED",
+        "TASK_DELETED",
+        "PROJECT_DELETED",
+        "CLIENT_CREATED",
+        "CLIENT_UPDATED",
+        "CLIENT_DELETED",
+        "MEMBER_ADDED",
+        "MEMBER_REMOVED",
+        "MEMBER_PERMISSION_CHANGED",
+        "EMPLOYEE_ROLE_CHANGED",
+        "EMPLOYEE_DEACTIVATED",
+        "EMPLOYEE_REACTIVATED",
+        "EMPLOYEE_UPDATED",
+        "WORKSPACE_CREATED",
+        "WORKSPACE_UPDATED",
+        "COLLABORATOR_ADDED",
+        "COLLABORATOR_REMOVED",
       ],
       dependency_type: [
         "FINISH_TO_START",
@@ -1298,6 +1995,8 @@ export const Constants = {
         "FINISH_TO_FINISH",
         "START_TO_FINISH",
       ],
+      hr_leave_status: ["PENDING", "APPROVED", "REJECTED", "CANCELLED"],
+      hr_leave_type: ["CL", "LWP", "WFH"],
       notification_type: [
         "TASK_ASSIGNED",
         "TASK_UNASSIGNED",
@@ -1309,6 +2008,9 @@ export const Constants = {
         "PROJECT_UPDATED",
         "MENTION",
         "SYSTEM",
+        "MEETING_SCHEDULED",
+        "MEETING_UPDATED",
+        "MEETING_CANCELLED",
       ],
       priority_level: ["LOW", "MEDIUM", "HIGH", "URGENT"],
       project_status: [

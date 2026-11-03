@@ -8,6 +8,8 @@ import { PriorityBadge, ProgressBar, ProjectStatusBadge } from "@/components/app
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { DeleteProjectButton, ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
+import { ProjectAccess } from "@/components/projects/project-access";
+import { listActiveEmployees, listProjectCollaborators } from "@/lib/data/collaborators";
 import { TaskBoard } from "@/components/tasks/task-board";
 import { TaskFilters } from "@/components/tasks/task-filters";
 import { TaskList } from "@/components/tasks/task-list";
@@ -15,7 +17,8 @@ import { listActivity } from "@/lib/data/activity";
 import { listClients } from "@/lib/data/clients";
 import { getProject } from "@/lib/data/projects";
 import { listTasks, toTaskRows } from "@/lib/data/tasks";
-import { getWorkspaceMembers } from "@/lib/data/workspace";
+import { mayEditProject } from "@/lib/auth/roles";
+import { canCreateProjects, getWorkspaceMembers } from "@/lib/data/workspace";
 import { displayName, formatDate, isPriority, isTaskStatus, todayISO, type Priority } from "@/lib/domain";
 
 import { getPageContext } from "../../_components/context";
@@ -39,7 +42,8 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
   const status = get("status");
   const view = get("view") === "board" ? "board" : "list";
 
-  const [tasks, members, activity, clients] = await Promise.all([
+  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  const [tasks, members, activity, clients, mayCreate, collaborators, employees] = await Promise.all([
     listTasks({
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -56,20 +60,31 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
     getWorkspaceMembers(project.workspaceId),
     listActivity({ workspaceId: project.workspaceId, projectId: project.id, limit: 15 }),
     listClients(project.workspaceId),
+    canCreateProjects(project.workspaceId, session.user.id, session.profile.role),
+    // People from other workspaces with access to this project (030; RLS-scoped).
+    session.profile.role === "INDIVIDUAL" ? Promise.resolve([]) : listProjectCollaborators(project.id),
+    isSuperAdmin ? listActiveEmployees() : Promise.resolve([]),
   ]);
 
-  const memberOptions = members.map((m) => ({
-    userId: m.userId,
-    name: displayName({ full_name: m.fullName, email: m.email }),
-    role: m.role,
-    isActive: m.isActive,
-    team: m.team,
-  }));
+  const memberOptions = [
+    ...members.map((m) => ({
+      userId: m.userId,
+      name: displayName({ full_name: m.fullName, email: m.email }),
+      role: m.role,
+      isActive: m.isActive,
+      team: m.team,
+    })),
+    // Collaborators can be assigned this project's tasks (030).
+    ...collaborators.map((c) => ({ userId: c.userId, name: `${c.name} (project access)`, role: "INDIVIDUAL" as const, isActive: true, team: null })),
+  ];
+  const memberIds = new Set(members.map((m) => m.userId));
+  const collaboratorIds = new Set(collaborators.map((c) => c.userId));
+  const accessCandidates = employees.filter((e) => !memberIds.has(e.userId) && !collaboratorIds.has(e.userId));
   const names = new Map(memberOptions.map((m) => [m.userId, m.name]));
   const role = session.profile.role;
   const userId = session.user.id;
-  const canEdit =
-    role === "SUPER_ADMIN" || (role === "ADMIN" && (project.ownerId === userId || project.createdBy === userId));
+  // Same rule as the projects update policy (migration 020); RLS enforces it again.
+  const canEdit = mayEditProject(role, userId, project, mayCreate);
   const today = todayISO();
   const rows = toTaskRows(tasks, session);
 
@@ -81,7 +96,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
         actions={
           <>
             <NewTaskButton
-              projects={[{ id: project.id, name: project.name }]}
+              projects={[{ id: project.id, name: project.name, clientId: project.clientId, clientName: project.clientName }]}
               members={memberOptions}
               workspaceId={project.workspaceId}
               defaultProjectId={project.id}
@@ -92,7 +107,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
                 mode="edit"
                 workspaceId={project.workspaceId}
                 projectId={project.id}
-                owners={memberOptions.filter((m) => m.isActive)}
+                owners={memberOptions.filter((m) => m.isActive && memberIds.has(m.userId))}
                 clients={clients}
                 initial={{
                   name: project.name,
@@ -163,6 +178,12 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
       ) : (
         <TaskList tasks={rows} showProject={false} today={today} />
       )}
+
+      {session.profile.role !== "INDIVIDUAL" ? (
+        <Section title="Access from other workspaces" className="mt-6">
+          <ProjectAccess projectId={project.id} collaborators={collaborators} candidates={accessCandidates} canManage={isSuperAdmin} />
+        </Section>
+      ) : null}
 
       <Section title="Recent project activity" className="mt-6">
         <ActivityFeed items={activity} names={names} />

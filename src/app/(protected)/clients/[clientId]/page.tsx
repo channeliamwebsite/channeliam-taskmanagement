@@ -84,7 +84,7 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
                   notes: client.notes ?? "",
                 }}
               />
-              {session.profile.role === "SUPER_ADMIN" ? <DeleteClientButton clientId={client.id} name={client.name} /> : null}
+              <DeleteClientButton clientId={client.id} name={client.name} />
             </>
           ) : null
         }
@@ -125,7 +125,13 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
               <EmptyState
                 icon={FolderKanban}
                 title="No projects for this client"
-                description={canCreate ? "Use Add project to create the first one." : "Projects for this client will appear here."}
+                description={
+                  canCreate
+                    ? "Use Add project to create the first one."
+                    : session.profile.role === "ADMIN"
+                      ? "Projects for this client will appear here. To add projects, ask a super admin to allow project creation for you."
+                      : "Projects for this client will appear here."
+                }
                 className="py-6"
               />
             ) : (

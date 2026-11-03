@@ -25,7 +25,9 @@ update public.profiles set team = 'Creatives' where id = '8a000000-0000-4000-800
 insert into public.workspaces (id, name, created_by, timezone) values
   ('9b000000-0000-4000-8000-000000000001', 'RA', '8a000000-0000-4000-8000-000000000001', 'Asia/Kolkata'),
   ('9b000000-0000-4000-8000-000000000002', 'RA other', '8a000000-0000-4000-8000-000000000005', 'Asia/Kolkata');
+-- Since 025 a super admin creator is not auto-added; this existing membership is explicit.
 insert into public.workspace_members (workspace_id, user_id) values
+  ('9b000000-0000-4000-8000-000000000001', '8a000000-0000-4000-8000-000000000001'),
   ('9b000000-0000-4000-8000-000000000001', '8a000000-0000-4000-8000-000000000002'),
   ('9b000000-0000-4000-8000-000000000001', '8a000000-0000-4000-8000-000000000003'),
   ('9b000000-0000-4000-8000-000000000001', '8a000000-0000-4000-8000-000000000004');

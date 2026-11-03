@@ -10,6 +10,7 @@ import { TaskFormDialog, type ProjectOption } from "./task-form-dialog";
 
 export function NewTaskButton({
   projects,
+  clients,
   members,
   workspaceId,
   selfOnly,
@@ -21,6 +22,8 @@ export function NewTaskButton({
   size = "default",
 }: {
   projects: ProjectOption[];
+  /** Every client of the workspace, so ones without projects are listed too. */
+  clients?: { id: string; name: string }[];
   members: MemberOption[];
   workspaceId?: string;
   /** Individuals: create a task assigned only to this user. */
@@ -45,6 +48,7 @@ export function NewTaskButton({
           open={open}
           onOpenChange={setOpen}
           projects={projects}
+          clients={clients}
           members={members}
           workspaceId={workspaceId}
           selfOnly={selfOnly}

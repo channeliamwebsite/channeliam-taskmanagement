@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useActionState, useState, type FormEvent } from "react";
 
@@ -9,12 +10,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn, type SignInState } from "@/lib/auth/actions";
+import { FORGOT_PASSWORD_ROUTE } from "@/lib/auth/routes";
 import { validateLogin, type LoginFieldErrors } from "@/lib/auth/validation";
 
 const URL_ERRORS: Record<string, string> = {
   account_inactive: "Your account has been deactivated. Contact an administrator.",
   profile_missing: "Your account is not set up yet. Contact an administrator.",
-  link_invalid: "That invitation link is invalid or has expired. Ask your administrator for a new one.",
+  link_invalid: "That invitation link is incomplete. Open it again from the email, or ask your administrator for a new one.",
+  invite_expired: "That invitation link has expired or has already been used. Ask your administrator for a new one.",
+  reset_invalid: "That password reset link is incomplete. Open it again from the email, or request a new one below.",
+  reset_expired: "That password reset link has expired or has already been used. Request a new one below.",
 };
 
 export function LoginForm() {
@@ -82,7 +87,12 @@ export function LoginForm() {
       </div>
 
       <div className="grid gap-2">
-        <Label htmlFor="password">Password</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="password">Password</Label>
+          <Link href={FORGOT_PASSWORD_ROUTE} className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+            Forgot password?
+          </Link>
+        </div>
         <div className="relative">
           <Input
             id="password"

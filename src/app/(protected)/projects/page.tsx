@@ -4,10 +4,11 @@ import Link from "next/link";
 
 import { PriorityBadge, ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
+import { TargetWorkspacePicker } from "@/components/app/target-workspace-picker";
 import { ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { listClients } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
-import { canCreateProjects, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { canCreateProjects, getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABELS, addDaysISO, displayName, formatDate } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
@@ -37,11 +38,13 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
   const deadline = get("deadline") in DEADLINES ? (get("deadline") as keyof typeof DEADLINES) : "";
   const sort = get("sort");
 
-  const [projects, members, canCreate, clients] = await Promise.all([
+  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  const [projects, members, canCreate, clients, allWorkspaces] = await Promise.all([
     listProjects(workspace.id),
     getWorkspaceMembers(workspace.id),
     canCreateProjects(workspace.id, session.user.id, session.profile.role),
     listClients(workspace.id),
+    isSuperAdmin ? getMyWorkspaces() : Promise.resolve([]),
   ]);
   const owners = members
     .filter((m) => m.isActive)
@@ -78,7 +81,14 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
       <PageHeader
         title="Projects"
         description={`${projects.length} project${projects.length === 1 ? "" : "s"} you can access`}
-        actions={canCreate ? <ProjectFormButton mode="create" workspaceId={workspace.id} owners={owners} clients={clients} /> : null}
+        actions={
+          canCreate ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {isSuperAdmin ? <TargetWorkspacePicker workspaces={allWorkspaces} activeId={workspace.id} /> : null}
+              <ProjectFormButton mode="create" workspaceId={workspace.id} owners={owners} clients={clients} />
+            </div>
+          ) : null
+        }
       />
       {projects.length ? (
         <form action="/projects" className="mb-4 flex flex-wrap items-end gap-2">

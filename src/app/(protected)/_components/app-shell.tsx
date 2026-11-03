@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { ReportBugButton } from "@/components/bugs/report-bug-button";
 import { MobileNav, Sidebar, type NavItem, type NavSection } from "@/components/app/nav";
 import { NotificationsMenu, SearchBox, UserMenu, type NotificationItem } from "@/components/app/topbar-menus";
 import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
@@ -66,8 +65,29 @@ export async function AppShell({ children }: { children: ReactNode }) {
       { href: "/team-today", label: "Team Today", icon: "teamtoday" },
       { href: "/team", label: role === "SUPER_ADMIN" ? "Employees" : "Team", icon: "team" },
       { href: "/reports", label: "Daily Updates", icon: "reports" },
-      { href: "/bugs", label: "Bug Reports", icon: "bugs" },
     ],
+  };
+  // Everyone records their own attendance, super admins included. Super
+  // admins also get the company-wide HR pages (the /hr routes check the role).
+  const myAttendance: NavItem[] = [
+    { href: "/attendance", label: "My Attendance", icon: "attendance" },
+    { href: "/attendance/leave", label: role === "SUPER_ADMIN" ? "My Leave" : "Leave Applications", icon: "leave" },
+    { href: "/attendance/profile", label: "My Profile", icon: "profile" },
+    { href: "/attendance/reports", label: "My Reports", icon: "myreports" },
+  ];
+  const attendanceHr: NavSection = {
+    title: "Attendance & HR",
+    items:
+      role === "SUPER_ADMIN"
+        ? [
+            { href: "/hr", label: "Team Attendance", icon: "teamattendance" },
+            { href: "/hr/leave", label: "Leave Applications", icon: "leave" },
+            { href: "/hr/employees", label: "Employee Profiles", icon: "employees" },
+            { href: "/hr/holidays", label: "Public Holidays", icon: "holidays" },
+            { href: "/hr/reports", label: "Monthly Reports", icon: "myreports" },
+            ...myAttendance,
+          ]
+        : myAttendance,
   };
   const workspaceNav: NavSection = {
     title: "Workspace",
@@ -78,25 +98,31 @@ export async function AppShell({ children }: { children: ReactNode }) {
       { href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" },
     ],
   };
-  const settings: NavSection = { title: "Settings", items: [{ href: "/settings", label: "Settings", icon: "settings" }] };
+  // The single Bug Reports entry, for every role: the page holds the form and the list.
+  const settings: NavSection = {
+    title: "Settings",
+    items: [
+      { href: "/settings", label: "Settings", icon: "settings" },
+      { href: "/bugs", label: "Bug Reports", icon: "bugs" },
+    ],
+  };
   // Individuals: just their day. Admins: their day, then their team.
   // Super admins: the team first, then their own work.
   const sections: NavSection[] =
     role === "INDIVIDUAL"
-      ? [myWork, settings]
+      ? [myWork, attendanceHr, settings]
       : role === "ADMIN"
-        ? [myWork, team, workspaceNav, settings]
-        : [team, myWork, workspaceNav, settings];
+        ? [myWork, attendanceHr, team, workspaceNav, settings]
+        : [team, myWork, attendanceHr, workspaceNav, settings];
   const switcher = <WorkspaceSwitcher workspaces={workspaces} activeId={active?.id ?? null} />;
-  const bugButton = <ReportBugButton workspaceId={active?.id ?? null} />;
   const name = displayName({ full_name: session.profile.fullName, email: session.profile.email });
 
   return (
     <div className="flex min-h-svh flex-1">
-      <Sidebar sections={sections} workspaceSwitcher={switcher} footer={bugButton} />
+      <Sidebar sections={sections} workspaceSwitcher={switcher} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur sm:px-6">
-          <MobileNav sections={sections} workspaceSwitcher={switcher} footer={bugButton} />
+          <MobileNav sections={sections} workspaceSwitcher={switcher} />
           <SearchBox />
           <div className="ml-auto flex items-center gap-1">
             <NotificationsMenu items={notifications.list} unread={notifications.unread} />

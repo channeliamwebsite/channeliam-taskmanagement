@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Flag, Plus } from "lucide-react";
+import { CalendarClock, Flag, Plus, Video } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -8,6 +8,7 @@ import { PriorityBadge } from "@/components/app/badges";
 import type { MemberOption } from "@/components/tasks/assignee-picker";
 import { TaskFormDialog, type ProjectOption } from "@/components/tasks/task-form-dialog";
 import { TASK_STATUS_DOT, TASK_STATUS_LABELS, formatDate, type Priority, type TaskStatus } from "@/lib/domain";
+import type { MeetingOnDay } from "@/lib/meetings";
 import { cn } from "@/lib/utils";
 
 export type CalendarItem = {
@@ -63,8 +64,10 @@ export function CalendarView({
   month,
   today,
   items,
+  meetings = [],
   canCreate,
   projects,
+  clients,
   members,
   workspaceId,
   selfOnly,
@@ -74,8 +77,11 @@ export function CalendarView({
   month: string;
   today: string;
   items: CalendarItem[];
+  /** Meetings the viewer may see, one entry per day (029). */
+  meetings?: MeetingOnDay[];
   canCreate: boolean;
   projects: ProjectOption[];
+  clients?: { id: string; name: string }[];
   members: MemberOption[];
   workspaceId: string;
   selfOnly: { userId: string } | null;
@@ -83,9 +89,12 @@ export function CalendarView({
   const [createFor, setCreateFor] = useState<string | null>(null);
   const byDay = new Map<string, CalendarItem[]>();
   for (const it of items) byDay.set(it.date, [...(byDay.get(it.date) ?? []), it]);
+  const meetingsByDay = new Map<string, MeetingOnDay[]>();
+  for (const m of meetings) meetingsByDay.set(m.date, [...(meetingsByDay.get(m.date) ?? []), m]);
 
   const dayCell = (day: string) => {
     const list = byDay.get(day) ?? [];
+    const dayMeetings = meetingsByDay.get(day) ?? [];
     const inMonth = view !== "month" || day.startsWith(month);
     const limit = view === "month" ? 4 : 50;
     return (
@@ -120,6 +129,22 @@ export function CalendarView({
           {canCreate ? <Plus className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" aria-hidden="true" /> : null}
         </div>
         <ul className="grid gap-1">
+          {dayMeetings.map((m) => (
+            <li key={`meeting-${m.id}`}>
+              <a
+                href={m.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={`${m.title}${m.time ? ` · ${m.time}` : ""} · join meeting`}
+                className="flex min-w-0 items-center gap-1 rounded bg-sky-50 px-1 py-0.5 text-[11px] text-sky-900 hover:bg-sky-100 dark:bg-sky-500/10 dark:text-sky-200"
+              >
+                <Video className="size-3 shrink-0 opacity-70" aria-label="Meeting" />
+                {m.time ? <span className="shrink-0 tabular-nums">{m.time.slice(0, 5)}</span> : null}
+                <span className="truncate">{m.title}</span>
+              </a>
+            </li>
+          ))}
           {list.slice(0, limit).map((it) => (
             <li key={`${it.id}-${it.kind}`}>
               <Item item={it} compact={view !== "day"} />
@@ -156,6 +181,9 @@ export function CalendarView({
         <span className="flex items-center gap-1">
           <Flag className="size-3" aria-hidden="true" /> Due
         </span>
+        <span className="flex items-center gap-1">
+          <Video className="size-3" aria-hidden="true" /> Meeting
+        </span>
         {canCreate ? <span>Click an empty day to create a task scheduled for it.</span> : null}
       </p>
       {createFor ? (
@@ -164,6 +192,7 @@ export function CalendarView({
           open
           onOpenChange={(o) => !o && setCreateFor(null)}
           projects={projects}
+          clients={clients}
           members={members}
           workspaceId={workspaceId}
           selfOnly={selfOnly}

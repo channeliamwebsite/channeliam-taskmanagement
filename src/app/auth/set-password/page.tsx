@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   title: "Set your password",
 };
 
-// Reached after accepting an invitation (/auth/confirm). The proxy requires a
+// Reached from an invitation or password-reset link (/auth/confirm). The proxy requires a
 // session for this route; the action re-checks it and the account status.
 export default function SetPasswordPage() {
   return (
@@ -27,8 +27,8 @@ export default function SetPasswordPage() {
         </div>
         <Card className="shadow-sm">
           <CardHeader className="text-center">
-            <CardTitle className="text-xl">Set your password</CardTitle>
-            <CardDescription>Choose a password for your {ORG_NAME} account.</CardDescription>
+            <CardTitle className="text-xl">Choose a password</CardTitle>
+            <CardDescription>Set a new password for your {ORG_NAME} account. You&apos;ll stay signed in afterwards.</CardDescription>
           </CardHeader>
           <CardContent>
             <SetPasswordForm />

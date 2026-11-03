@@ -6,7 +6,10 @@ select * from no_plan();
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres). W: sa (creator, super admin), adm, ind. W2: sa (also
--- a member) and s2 (super admin of W2 only). out: member of no workspace.
+-- a member) and s2, a deactivated super admin. out: member of no workspace.
+-- Since 025 super admins are company-level and a creator is not auto-added, so
+-- sa's W membership is explicit and the cross-workspace check uses a
+-- deactivated super admin (company-wide access: company_admin.test.sql).
 -- ---------------------------------------------------------------------------
 insert into auth.users (id, email, raw_user_meta_data) values
   ('8e000000-0000-4000-8000-000000000001', 'sa@so.test', '{"full_name":"SA"}'),
@@ -15,11 +18,13 @@ insert into auth.users (id, email, raw_user_meta_data) values
   ('8e000000-0000-4000-8000-000000000004', 's2@so.test', '{"full_name":"S2"}'),
   ('8e000000-0000-4000-8000-000000000005', 'out@so.test', '{"full_name":"OUT"}');
 update public.profiles set role = 'SUPER_ADMIN' where id in ('8e000000-0000-4000-8000-000000000001', '8e000000-0000-4000-8000-000000000004');
+update public.profiles set is_active = false where id = '8e000000-0000-4000-8000-000000000004';
 update public.profiles set role = 'ADMIN' where id = '8e000000-0000-4000-8000-000000000002';
 insert into public.workspaces (id, name, created_by, timezone) values
   ('9e000000-0000-4000-8000-000000000001', 'SO', '8e000000-0000-4000-8000-000000000001', 'Asia/Kolkata'),
   ('9e000000-0000-4000-8000-000000000002', 'SO two', '8e000000-0000-4000-8000-000000000004', 'Asia/Kolkata');
 insert into public.workspace_members (workspace_id, user_id) values
+  ('9e000000-0000-4000-8000-000000000001', '8e000000-0000-4000-8000-000000000001'),
   ('9e000000-0000-4000-8000-000000000001', '8e000000-0000-4000-8000-000000000002'),
   ('9e000000-0000-4000-8000-000000000001', '8e000000-0000-4000-8000-000000000003'),
   ('9e000000-0000-4000-8000-000000000002', '8e000000-0000-4000-8000-000000000001');
@@ -92,12 +97,12 @@ $$, '42501', null, 'admins cannot create meeting records');
 set local request.jwt.claims to '{"sub":"8e000000-0000-4000-8000-000000000003","role":"authenticated"}';
 select is((select count(*)::int from public.meeting_records), 0, 'individuals cannot read meeting records');
 set local request.jwt.claims to '{"sub":"8e000000-0000-4000-8000-000000000004","role":"authenticated"}';
-select is((select count(*)::int from public.meeting_records), 0, 'a super admin of another workspace cannot read them');
+select is((select count(*)::int from public.meeting_records), 0, 'a deactivated super admin cannot read them');
 update public.meeting_records set notes = 'tampered' where meeting_link_id = '5e000000-0000-4000-8000-000000000001';
 reset role;
 set local request.jwt.claims to '';
 select is((select notes from public.meeting_records where meeting_date = '2026-10-27'), 'Discussed',
-  'a super admin of another workspace cannot change them');
+  'a deactivated super admin cannot change them');
 delete from public.meeting_links where id = '5e000000-0000-4000-8000-000000000001';
 select is((select count(*)::int from public.meeting_records), 0, 'deleting a meeting removes its records');
 

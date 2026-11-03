@@ -50,8 +50,9 @@ set local request.jwt.claims to '{"sub":"11111111-1111-1111-1111-111111111111","
 select lives_ok($$
   insert into public.workspaces (id, name) values ('aaaaaaaa-0000-0000-0000-000000000001', 'Main Workspace') returning id
 $$, 'super admin creates a workspace (insert ... returning)');
+-- 025: super admins are company-level; creating a workspace does not make them a member.
 select is((select count(*)::int from public.workspace_members where workspace_id = 'aaaaaaaa-0000-0000-0000-000000000001'),
-          1, 'creator auto-added as member');
+          0, 'a super admin creator is not added as a member (025)');
 select lives_ok($$
   insert into public.workspace_members (workspace_id, user_id, can_create_projects) values
     ('aaaaaaaa-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', true),
@@ -63,7 +64,8 @@ select throws_ok($$
   insert into public.workspace_members (workspace_id, user_id)
   values ('aaaaaaaa-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222')
 $$, '23505', null, 'same user cannot join a workspace twice');
-select is((select count(*)::int from public.workspaces), 1, 'super admin cannot see workspaces they are not in');
+select ok(exists (select 1 from public.workspaces where id = 'aaaaaaaa-0000-0000-0000-000000000002'),
+          'a super admin sees workspaces they are not a member of (025, company-level)');
 select throws_ok($$
   update public.profiles set role = 'ADMIN' where id = '11111111-1111-1111-1111-111111111111'
 $$, '42501', null, 'super admin cannot change own role');
@@ -221,7 +223,8 @@ select is((select count(*)::int from public.activity_logs where workspace_id = '
 -- Super admin sees everything in their workspace; admin sees team reports
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims to '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
-select is((select count(*)::int from public.tasks), 4, 'super admin sees all workspace tasks');
+select is((select count(*)::int from public.tasks where workspace_id = 'aaaaaaaa-0000-0000-0000-000000000001'), 4,
+          'super admin sees all workspace tasks');
 select ok((select count(*) from public.activity_logs) >= 8, 'activity logged for create/assign/status/comment');
 select is((select actual_hours from public.tasks where id = 'cccccccc-0000-0000-0000-000000000001'),
           1.50::numeric, 'actual_hours synced from time entries');

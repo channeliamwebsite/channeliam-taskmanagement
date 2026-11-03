@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 import { isRole, type UserRole } from "@/lib/auth/roles";
 import { WORKSPACE_COOKIE } from "@/lib/data/workspace";
 
-import { NOT_PERMITTED, cleanText, dbError, fail, getActor, isUuid, ok, type ActionResult } from "./shared";
+import { NOT_PERMITTED, cleanText, dbError, fail, getActor, isUuid, logGuardRefusal, ok, type ActionResult } from "./shared";
 
 /** Stores the preferred workspace. Only a view preference; RLS enforces access. */
 export async function switchWorkspace(workspaceId: string): Promise<ActionResult> {
@@ -121,7 +121,31 @@ export async function updateMemberProfile(userId: string, update: MemberUpdate):
   if (update.team !== undefined) patch.team = cleanText(update.team, 100);
 
   const { data, error } = await actor.supabase.from("profiles").update(patch).eq("id", userId).select("id");
+  logGuardRefusal("update_member_profile", actor.userId, userId, error);
   if (error) return fail(dbError(error, "Could not update the user."));
+  if (!data.length) return fail(NOT_PERMITTED);
+  refresh();
+  return ok();
+}
+
+/**
+ * Grants or revokes an Individual's permission to create clients and projects
+ * in one workspace (028, default off). Super admins only; RLS and the column
+ * grant enforce it again, and the change is audited (MEMBER_PERMISSION_CHANGED).
+ */
+export async function setCanCreateClientsProjects(workspaceId: string, userId: string, value: boolean): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can change this.");
+  if (!isUuid(workspaceId) || !isUuid(userId)) return fail("Invalid request.");
+
+  const { data, error } = await actor.supabase
+    .from("workspace_members")
+    .update({ can_create_clients_projects: Boolean(value) })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .select("id");
+  if (error) return fail(dbError(error));
   if (!data.length) return fail(NOT_PERMITTED);
   refresh();
   return ok();

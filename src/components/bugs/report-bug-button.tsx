@@ -1,8 +1,6 @@
 "use client";
 
 import { Bug, Loader2 } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
@@ -13,9 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createBugReport } from "@/lib/actions/bugs";
 
-/** Sidebar footer: opens the "Report a bug" form. Pre-fills the current page. */
-export function ReportBugButton({ workspaceId, onOpen }: { workspaceId: string | null; onOpen?: () => void }) {
-  const pathname = usePathname();
+/** "Report a bug" button on the Bug Reports page: opens the bug report form. */
+export function ReportBugButton({ workspaceId }: { workspaceId: string | null }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -25,10 +22,9 @@ export function ReportBugButton({ workspaceId, onOpen }: { workspaceId: string |
   if (!workspaceId) return null;
 
   function show() {
-    setValues({ title: "", description: "", page: pathname, steps: "" });
+    setValues({ title: "", description: "", page: "", steps: "" });
     setError(null);
     setOpen(true);
-    onOpen?.();
   }
 
   function onSubmit(event: FormEvent) {
@@ -45,18 +41,9 @@ export function ReportBugButton({ workspaceId, onOpen }: { workspaceId: string |
 
   return (
     <>
-      <div className="mt-auto grid gap-1 border-t pt-3">
-        <button
-          type="button"
-          onClick={show}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <Bug className="size-4" aria-hidden="true" /> Report a bug
-        </button>
-        <Link href="/bugs" className="px-2 text-xs text-muted-foreground hover:underline">
-          View bug reports
-        </Link>
-      </div>
+      <Button size="sm" className="h-8" onClick={show}>
+        <Bug aria-hidden="true" /> Report a bug
+      </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -79,7 +66,18 @@ export function ReportBugButton({ workspaceId, onOpen }: { workspaceId: string |
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="bug-page">Page or feature</Label>
-              <Input id="bug-page" value={values.page} onChange={(e) => set("page", e.target.value)} maxLength={300} className="h-9" />
+              <Input
+                id="bug-page"
+                value={values.page}
+                onChange={(e) => set("page", e.target.value)}
+                maxLength={300}
+                placeholder="e.g. My Day, or /tasks"
+                aria-describedby="bug-page-hint"
+                className="h-9"
+              />
+              <p id="bug-page-hint" className="text-xs text-muted-foreground">
+                Page where it happened.
+              </p>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="bug-steps">Steps to reproduce</Label>

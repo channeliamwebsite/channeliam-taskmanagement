@@ -5,14 +5,17 @@ create extension if not exists pgtap with schema extensions;
 select * from no_plan();
 
 -- Fixtures (as postgres): two workspaces, sa = super admin of W1, ad = admin,
--- iv = individual, ot = super admin of W2 only.
+-- iv = individual, ot = admin of W2 only (until 025 a super admin of W2; super
+-- admins are now company-level, so workspace isolation is checked with an admin
+-- of the other workspace; company-wide super admin access is tested in
+-- company_admin.test.sql).
 insert into auth.users (id, email, raw_user_meta_data) values
   ('a1111111-1111-1111-1111-111111111111', 'sa@access.test', '{"full_name":"SA"}'),
   ('a2222222-2222-2222-2222-222222222222', 'ad@access.test', '{"full_name":"AD"}'),
   ('a3333333-3333-3333-3333-333333333333', 'iv@access.test', '{"full_name":"IV"}'),
   ('a4444444-4444-4444-4444-444444444444', 'ot@access.test', '{"full_name":"OT"}');
-update public.profiles set role = 'SUPER_ADMIN' where id in ('a1111111-1111-1111-1111-111111111111', 'a4444444-4444-4444-4444-444444444444');
-update public.profiles set role = 'ADMIN' where id = 'a2222222-2222-2222-2222-222222222222';
+update public.profiles set role = 'SUPER_ADMIN' where id = 'a1111111-1111-1111-1111-111111111111';
+update public.profiles set role = 'ADMIN' where id in ('a2222222-2222-2222-2222-222222222222', 'a4444444-4444-4444-4444-444444444444');
 
 insert into public.workspaces (id, name, created_by) values
   ('f1000000-0000-0000-0000-000000000001', 'W1', 'a1111111-1111-1111-1111-111111111111'),
@@ -60,6 +63,22 @@ select throws_ok($$
   values ('f2000000-0000-0000-0000-000000000002', 'Foreign workspace', 'c2000000-0000-0000-0000-000000000002',
           'a2222222-2222-2222-2222-222222222222')
 $$, '42501', null, 'permitted admin cannot add a project to another workspace''s client');
+-- The same admin with project creation turned off is refused for this client too.
+reset role;
+update public.workspace_members set can_create_projects = false
+where workspace_id = 'f1000000-0000-0000-0000-000000000001' and user_id = 'a2222222-2222-2222-2222-222222222222';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a2222222-2222-2222-2222-222222222222","role":"authenticated"}';
+select throws_ok($$
+  insert into public.projects (workspace_id, name, client_id, created_by)
+  values ('f1000000-0000-0000-0000-000000000001', 'Not permitted', 'c1000000-0000-0000-0000-000000000001',
+          'a2222222-2222-2222-2222-222222222222')
+$$, '42501', null, 'admin without can_create_projects cannot add a project to a client');
+reset role;
+update public.workspace_members set can_create_projects = true
+where workspace_id = 'f1000000-0000-0000-0000-000000000001' and user_id = 'a2222222-2222-2222-2222-222222222222';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a2222222-2222-2222-2222-222222222222","role":"authenticated"}';
 -- Adding a project from a client's page (client preselected).
 select lives_ok($$
   insert into public.projects (workspace_id, name, client_id, client_name, created_by)
@@ -79,12 +98,13 @@ select throws_ok($$
   insert into public.projects (workspace_id, name, client_id, created_by)
   values ('f1000000-0000-0000-0000-000000000001', 'Foreign project', 'c1000000-0000-0000-0000-000000000001',
           'a4444444-4444-4444-4444-444444444444')
-$$, '42501', null, 'another workspace''s super admin cannot add a project to this client');
+$$, '42501', null, 'an admin of another workspace cannot add a project to this client');
 set local request.jwt.claims to '{"sub":"a2222222-2222-2222-2222-222222222222","role":"authenticated"}';
-delete from public.clients where id = 'c1000000-0000-0000-0000-000000000001';
+select throws_ok($$ delete from public.clients where id = 'c1000000-0000-0000-0000-000000000001' $$,
+  '23503', null, 'an admin cannot delete a client that still has projects (014)');
 reset role;
 select is((select count(*)::int from public.clients where id = 'c1000000-0000-0000-0000-000000000001'), 1,
-          'admin delete of a client is filtered (super admin only)');
+          'the client still exists after the refused deletion');
 set local role authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -127,7 +147,7 @@ set local request.jwt.claims to '{"sub":"a4444444-4444-4444-4444-444444444444","
 update public.workspaces set timezone = 'UTC' where id = 'f1000000-0000-0000-0000-000000000001';
 reset role;
 select is((select timezone from public.workspaces where id = 'f1000000-0000-0000-0000-000000000001'), 'Asia/Dubai',
-          'super admin of another workspace cannot change it');
+          'an admin of another workspace cannot change it');
 set local role authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -151,7 +171,7 @@ select is((select count(*)::int from public.daily_reports where user_id = 'a3333
           'one report per user per workspace per day');
 
 set local request.jwt.claims to '{"sub":"a4444444-4444-4444-4444-444444444444","role":"authenticated"}';
-select is((select count(*)::int from public.daily_reports), 0, 'super admin of another workspace cannot read W1 reports');
+select is((select count(*)::int from public.daily_reports), 0, 'an admin of another workspace cannot read W1 reports');
 set local request.jwt.claims to '{"sub":"a2222222-2222-2222-2222-222222222222","role":"authenticated"}';
 select is((select count(*)::int from public.daily_reports), 1, 'admin of the workspace can read team reports');
 

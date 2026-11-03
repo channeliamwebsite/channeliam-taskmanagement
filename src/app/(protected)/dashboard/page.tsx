@@ -17,6 +17,7 @@ import Link from "next/link";
 import { PriorityBadge, ProgressBar, StatusBadge } from "@/components/app/badges";
 import { MeetingLinksCard } from "@/components/app/meeting-links-card";
 import { PageHeader, Section } from "@/components/app/page-header";
+import { CompanyOverviewTable } from "@/components/dashboard/company-overview";
 import { ProjectProgressTable } from "@/components/dashboard/project-progress-table";
 import {
   CompactTaskList,
@@ -33,6 +34,7 @@ import { buttonVariants } from "@/components/ui/button";
 import type { Session } from "@/lib/auth/dal";
 import { ROLE_LABELS } from "@/lib/auth/roles";
 import { listClients } from "@/lib/data/clients";
+import { getCompanyOverview } from "@/lib/data/company-overview";
 import { loadDailyTracking } from "@/lib/data/daily-tracking-data";
 import { summarizeTracking } from "@/lib/daily-tracking";
 import { loadError } from "@/lib/data/errors";
@@ -41,7 +43,7 @@ import { listMeetingLinks, meetingsForPerson, type MeetingLink } from "@/lib/dat
 import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
-import { canCreateProjects, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
+import { canCreateProjects, getMyWorkspaces, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
 import { PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue } from "@/lib/domain";
 import { isLeafTask } from "@/lib/progress";
 import { isCompletedOn, isInTodaysWorkload } from "@/lib/scheduling";
@@ -90,15 +92,18 @@ export default async function DashboardPage() {
   const props = { session, workspace, tasks, projects, members, today: workspaceToday(workspace) };
   const meetingCard = (
     <MeetingLinksCard
-      links={meetingsForPerson(meetings, session.profile.team, workspaceToday(workspace))}
+      links={meetingsForPerson(meetings, session.profile.team, workspaceToday(workspace), session.user.id)}
       canManage={session.profile.role === "SUPER_ADMIN"}
     />
   );
 
   if (isSuperAdmin) {
+    // Company-wide figures (super admins read every workspace, 025).
+    const overview = await getCompanyOverview(await getMyWorkspaces());
     return (
       <SuperAdminDashboard
         {...props}
+        overview={overview}
         name={name}
         tracking={tracking}
         meetings={meetings}
@@ -115,6 +120,7 @@ export default async function DashboardPage() {
         team={team}
         projectOptions={projectOptions}
         meetingCard={meetingCard}
+        clientOptions={clients.map((c) => ({ id: c.id, name: c.name }))}
         clients={canCreate ? clients.map((c) => ({ id: c.id, name: c.name })) : null}
       />
     );
@@ -133,6 +139,17 @@ export default async function DashboardPage() {
             <Link href="/tasks" className={buttonVariants({ variant: "outline", size: "sm", className: "h-8" })}>
               <CheckSquare aria-hidden="true" /> My Tasks
             </Link>
+            {/* Individuals granted client and project creation (028). */}
+            {members.find((m) => m.userId === session.user.id)?.canCreateClientsProjects ? (
+              <>
+                <Link href="/clients" className={buttonVariants({ variant: "outline", size: "sm", className: "h-8" })}>
+                  Clients
+                </Link>
+                <Link href="/projects" className={buttonVariants({ variant: "outline", size: "sm", className: "h-8" })}>
+                  Projects
+                </Link>
+              </>
+            ) : null}
           </div>
         }
       />
@@ -157,6 +174,7 @@ type Props = {
 };
 
 type SuperAdminProps = Props & {
+  overview: Awaited<ReturnType<typeof getCompanyOverview>>;
   name: string;
   tracking: Awaited<ReturnType<typeof loadDailyTracking>>;
   meetings: MeetingLink[];
@@ -176,7 +194,7 @@ const MEETING_KIND = { MORNING: "Morning", EVENING: "Evening", OTHER: "Meeting" 
  * then client/project progress, today's reports and blockers, and meetings.
  * Super admins review reports; they do not submit them.
  */
-function SuperAdminDashboard({ session, workspace, tasks, projects, members, today, name, tracking, meetings, meetingRecords }: SuperAdminProps) {
+function SuperAdminDashboard({ session, workspace, tasks, projects, members, today, name, tracking, meetings, meetingRecords, overview }: SuperAdminProps) {
   // Admins and Individuals who are active, plus anyone (e.g. deactivated today)
   // who still has rows in today's report. Super admins review; they do not report.
   const reported = new Set(tracking.rows.map((r) => r.userId));
@@ -228,7 +246,7 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
     <>
       <PageHeader
         title={`Welcome back, ${name}`}
-        description={`${ROLE_LABELS[session.profile.role]} · ${workspace.name} · company overview`}
+        description={`${ROLE_LABELS[session.profile.role]} · company overview, then ${workspace.name}`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/reports" className={quickLink}>
@@ -244,7 +262,14 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
         }
       />
 
-      {/* 1. Company-wide employees and tasks. Each figure opens the matching list. */}
+      <Section title={`Company overview · ${overview.length} workspace${overview.length === 1 ? "" : "s"}`} className="mb-6">
+        <CompanyOverviewTable rows={overview} activeId={workspace.id} />
+        <p className="mt-2 text-xs text-muted-foreground">
+          Live counts per workspace, each in its own timezone. Choose a workspace in the switcher to see its details below.
+        </p>
+      </Section>
+
+      {/* 1. Selected workspace: employees and tasks. Each figure opens the matching list. */}
       <div className="mb-2 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <StatCard label={`Employees · ${people.admins} Admin · ${people.individuals} Individual`} value={people.admins + people.individuals} icon={Users} href="/team?active=active" />
         <StatCard label={`Today's tasks · ${todays.completedToday} done today`} value={todays.planned} icon={Sun} tone="info" href="/tasks?scope=all&sort=due" />
@@ -445,6 +470,8 @@ type AdminProps = Props & {
   team: Awaited<ReturnType<typeof loadTeamToday>>;
   projectOptions: Awaited<ReturnType<typeof listProjectOptions>>;
   meetingCard: ReactNode;
+  /** Every client of the workspace, for the New task dialog. */
+  clientOptions: { id: string; name: string }[];
   /** Clients for Add project; null when the admin may not create projects in this workspace. */
   clients: { id: string; name: string }[] | null;
 };
@@ -493,7 +520,7 @@ function TaskLine({
  * Admin: personal work and work handed out to others, side by side; team
  * progress below. Creating a task uses the existing New task dialog.
  */
-function AdminDashboard({ session, workspace, tasks, projects, members, today, name, team, projectOptions, meetingCard, clients }: AdminProps) {
+function AdminDashboard({ session, workspace, tasks, projects, members, today, name, team, projectOptions, meetingCard, clientOptions, clients }: AdminProps) {
   const me = session.user.id;
   const handedOut = (t: TaskSummary) =>
     (t.createdBy === me || t.assignees.some((a) => a.assignedBy === me)) && t.assignees.some((a) => a.userId !== me);
@@ -529,7 +556,7 @@ function AdminDashboard({ session, workspace, tasks, projects, members, today, n
         description={`${ROLE_LABELS[session.profile.role]} · ${workspace.name}`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <NewTaskButton projects={projectOptions} members={memberOptions} workspaceId={workspace.id} size="sm" />
+            <NewTaskButton projects={projectOptions} clients={clientOptions} members={memberOptions} workspaceId={workspace.id} size="sm" />
             {clients ? (
               <ProjectFormButton
                 mode="create"

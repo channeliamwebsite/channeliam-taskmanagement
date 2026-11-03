@@ -1,12 +1,13 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { headers } from "next/headers";
 
+import { authLinkUrl, confirmRedirect, resetRequestError } from "@/lib/auth/email-links";
+import { appOrigin } from "@/lib/auth/origin";
 import { addEmployee, inviteAcceptUrl, validateEmployeeInput, type AddEmployeeResult, type Delivery, type EmployeeInput } from "@/lib/employee-workflow";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-import { NOT_PERMITTED, dbError, fail, getActor, isUuid, ok, type ActionResult } from "./shared";
+import { NOT_PERMITTED, dbError, fail, getActor, isUuid, logGuardRefusal, ok, type ActionResult } from "./shared";
 
 // Employee management for super admins. Supabase Auth admin calls (create /
 // invite / block sign-in) need the service-role client, which never leaves the
@@ -28,14 +29,6 @@ function adminClient() {
 }
 
 const NO_SERVICE_KEY = "Employee accounts can only be managed when SUPABASE_SERVICE_ROLE_KEY is configured on the server.";
-
-async function appOrigin() {
-  const h = await headers();
-  const origin = h.get("origin");
-  if (origin) return origin;
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  return `${h.get("x-forwarded-proto") ?? "https"}://${host}`;
-}
 
 /** Auth errors are shown as Supabase reports them; they carry no secrets. */
 function authError(error: { message?: string } | null, fallback: string) {
@@ -109,7 +102,7 @@ export async function createEmployee(request: AddEmployeeRequest): Promise<Actio
       async addMembership(userId) {
         const { error } = await actor.supabase
           .from("workspace_members")
-          .insert({ workspace_id: workspaceId, user_id: userId, can_create_projects: false });
+          .insert({ workspace_id: workspaceId, user_id: userId });
         return error && error.code !== "23505" ? dbError(error) : null;
       },
       async applyProfile(userId, value) {
@@ -124,6 +117,7 @@ export async function createEmployee(request: AddEmployeeRequest): Promise<Actio
           })
           .eq("id", userId)
           .select("id");
+        logGuardRefusal("apply_employee_profile", actor.userId, userId, error);
         if (error) return dbError(error);
         return data.length ? null : "You don't have permission to do that.";
       },
@@ -170,6 +164,49 @@ export async function reissueInvite(workspaceId: string, userId: string, deliver
 }
 
 /**
+ * Sends a password reset email to an employee (email), or returns a one-time
+ * reset link to share with them (link). The admin never sees or sets a
+ * password: the link signs the employee in once so they choose their own.
+ * Only for active employees who have accepted their invitation (others get a
+ * new invitation instead), and not for yourself (use Forgot password).
+ */
+export async function sendPasswordReset(workspaceId: string, userId: string, delivery: Delivery): Promise<ActionResult<{ link?: string }>> {
+  const actor = await superAdmin();
+  if (!actor.ok) return actor;
+  if (!isUuid(workspaceId) || !isUuid(userId)) return fail("Invalid request.");
+  if (delivery !== "email" && delivery !== "link") return fail("Choose how to send the reset link.");
+  if (userId === actor.userId) return fail("Use “Forgot password?” on the sign-in page to reset your own password.");
+
+  // Only members of a workspace the caller can see (RLS), and only active ones.
+  const { data: member } = await actor.supabase
+    .from("workspace_members")
+    .select("profile:profiles!workspace_members_user_id_fkey(is_active)")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!member) return fail(NOT_PERMITTED);
+  if (!member.profile?.is_active) return fail("This employee is deactivated. Reactivate them before resetting their password.");
+
+  const admin = adminClient();
+  if (!admin) return fail(NO_SERVICE_KEY);
+  const { data: auth, error: lookupError } = await admin.auth.admin.getUserById(userId);
+  const user = auth.user;
+  if (lookupError || !user?.email) return fail("Could not find that account.");
+  if (!user.email_confirmed_at && !user.last_sign_in_at) return fail("This employee hasn't accepted their invitation yet. Resend the invitation instead.");
+
+  const origin = await appOrigin();
+  console.info("[audit] password reset issued", JSON.stringify({ actorId: actor.userId, targetId: userId, delivery }));
+  if (delivery === "email") {
+    const { error } = await admin.auth.resetPasswordForEmail(user.email, { redirectTo: confirmRedirect(origin) });
+    if (error) return fail(resetRequestError(error) ?? `The reset email could not be sent: ${authError(error, "unknown error")}`);
+    return ok({});
+  }
+  const { data, error } = await admin.auth.admin.generateLink({ type: "recovery", email: user.email });
+  if (error || !data.properties?.hashed_token) return fail(`The reset link could not be created: ${authError(error, "unknown error")}`);
+  return ok({ link: authLinkUrl(origin, data.properties.hashed_token, "recovery") });
+}
+
+/**
  * The only path that changes an employee's active status (Edit employee does
  * not). Nothing is deleted: tasks, reports and memberships are kept.
  *
@@ -191,6 +228,7 @@ export async function setEmployeeActive(userId: string, active: boolean): Promis
 
   if (!active) {
     const { data, error } = await actor.supabase.from("profiles").update({ is_active: false }).eq("id", userId).select("id");
+    logGuardRefusal("deactivate_employee", actor.userId, userId, error);
     if (error) return fail(dbError(error, "Could not update the employee."));
     if (!data.length) return fail(NOT_PERMITTED);
     refresh();
@@ -226,7 +264,7 @@ export async function setWorkspaceAccess(workspaceId: string, userId: string, me
   if (!member && userId === actor.userId) return fail("You cannot remove yourself.");
 
   if (member) {
-    const { error } = await actor.supabase.from("workspace_members").insert({ workspace_id: workspaceId, user_id: userId, can_create_projects: false });
+    const { error } = await actor.supabase.from("workspace_members").insert({ workspace_id: workspaceId, user_id: userId });
     if (error && error.code !== "23505") return fail(dbError(error));
   } else {
     const { data, error } = await actor.supabase.from("workspace_members").delete().eq("workspace_id", workspaceId).eq("user_id", userId).select("id");

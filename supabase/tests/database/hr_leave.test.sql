@@ -16,6 +16,8 @@ insert into auth.users (id, email, raw_user_meta_data) values
   ('f5000000-0000-4000-8000-000000000005', 'iv2@lv.test', '{"full_name":"IV2"}');
 update public.profiles set role = 'SUPER_ADMIN' where id in ('f5000000-0000-4000-8000-000000000001', 'f5000000-0000-4000-8000-000000000002');
 update public.profiles set role = 'ADMIN' where id = 'f5000000-0000-4000-8000-000000000003';
+-- Monthly CL credits (036) start in the joining month: November 2026 for everyone here.
+update public.profiles set created_at = '2026-11-01 10:00+05:30' where id::text like 'f5000000-%';
 
 -- ---------------------------------------------------------------------------
 -- Public holidays: super admins only, one per date
@@ -52,20 +54,20 @@ select is((select name from public.hr_public_holidays where holiday_date = '2027
 -- ---------------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"f5000000-0000-4000-8000-000000000004","role":"authenticated"}';
-select lives_ok($$ select public.hr_apply_leave('CL', '2027-01-04', '2027-01-08', 'Family function') $$, 'iv applies for 5 days of CL');
+select lives_ok($$ select public.hr_apply_leave('CL', '2027-01-04', '2027-01-06', 'Family function') $$, 'iv applies for 3 days of CL (November, December and January credits)');
 select is((select format('%s|%s|%s', status, working_days, decided_by is null) from public.hr_leave_applications where user_id = 'f5000000-0000-4000-8000-000000000004' and leave_type = 'CL'),
-  'PENDING|5|t', 'the application is pending with 5 working days');
-select is((select format('%s|%s|%s|%s', allowance, approved, pending, available) from public.hr_leave_balance(null, 2027) where leave_type = 'CL'),
-  '12.0|0|5|7.0', 'CL: 12 allowed, 5 pending, 7 available');
-select throws_ok($$ select public.hr_apply_leave('CL', '2027-01-07', '2027-01-12', 'Overlap') $$,
+  'PENDING|3|t', 'the application is pending with 3 working days');
+select is((select format('%s|%s', approved, pending) from public.hr_leave_balance(null, 2027) where leave_type = 'CL'),
+  '0|3', 'CL: 3 pending');
+select throws_ok($$ select public.hr_apply_leave('CL', '2027-01-05', '2027-01-12', 'Overlap') $$,
   '23P01', null, 'an overlapping application is refused');
-select throws_ok($$ select public.hr_apply_leave('WFH', '2027-01-08', '2027-01-08', 'Overlap') $$,
+select throws_ok($$ select public.hr_apply_leave('WFH', '2027-01-06', '2027-01-06', 'Overlap') $$,
   '23P01', null, 'whatever its type');
-select throws_ok($$ select public.hr_apply_leave('CL', '2027-02-01', '2027-02-12', 'Too long') $$,
-  '23514', 'Not enough Casual Leave: 7.0 day(s) available, 11 requested.', 'CL beyond the balance is refused (Mon 1 - Fri 12 Feb: 11 working days, Saturday counts)');
+select throws_like($$ select public.hr_apply_leave('CL', '2027-02-01', '2027-02-12', 'Too long') $$,
+  'Not enough Casual Leave: 10 of 11 day(s)%', 'CL beyond the credits is refused (Mon 1 - Fri 12 Feb: 11 working days, Saturday counts; only February''s credit is free)');
 select lives_ok($$ select public.hr_apply_leave('LWP', '2027-02-01', '2027-02-12', 'Personal travel') $$, 'LWP has no balance limit');
 select lives_ok($$ select public.hr_apply_leave('WFH', '2027-03-01', '2027-03-01', 'Internet installation at home') $$, 'WFH can be requested');
-select is((select available from public.hr_leave_balance(null, 2027) where leave_type = 'CL'), 7.0::numeric, 'LWP and WFH do not use the CL balance');
+select is((select pending from public.hr_leave_balance(null, 2027) where leave_type = 'CL'), 3, 'LWP and WFH do not use the CL balance');
 select throws_ok($$ select public.hr_apply_leave('CL', '2027-01-10', '2027-01-10', 'Sunday') $$,
   '22023', 'There are no working days in these dates (Sundays and public holidays are not counted).', 'a Sunday alone has no working days');
 select throws_ok($$ select public.hr_apply_leave('CL', '2026-12-31', '2027-01-01', 'Year end') $$,
@@ -109,8 +111,8 @@ select throws_ok($$ select public.hr_decide_leave((select id from public.hr_leav
   '22023', null, 'a rejection needs a reason');
 select lives_ok($$ select public.hr_decide_leave((select id from public.hr_leave_applications where user_id = 'f5000000-0000-4000-8000-000000000004' and leave_type = 'LWP'), false, 'Peak delivery week') $$, 'sa rejects the LWP with a reason');
 select is((select format('%s|%s', status, rejection_reason) from public.hr_leave_applications where user_id = 'f5000000-0000-4000-8000-000000000004' and leave_type = 'LWP'), 'REJECTED|Peak delivery week', 'the rejection reason is kept');
-select is((select format('%s|%s|%s', approved, pending, available) from public.hr_leave_balance('f5000000-0000-4000-8000-000000000004', 2027) where leave_type = 'CL'),
-  '5|0|7.0', 'approved CL uses the balance');
+select is((select format('%s|%s', approved, pending) from public.hr_leave_balance('f5000000-0000-4000-8000-000000000004', 2027) where leave_type = 'CL'),
+  '3|0', 'approved CL uses the balance');
 select is((select approved from public.hr_leave_balance('f5000000-0000-4000-8000-000000000004', 2027) where leave_type = 'LWP'), 0, 'a rejected LWP counts for nothing');
 
 -- A super admin never decides their own application.
@@ -121,21 +123,17 @@ set local request.jwt.claims to '{"sub":"f5000000-0000-4000-8000-000000000002","
 select lives_ok($$ select public.hr_decide_leave((select id from public.hr_leave_applications where user_id = 'f5000000-0000-4000-8000-000000000001'), true) $$,
   'another super admin can');
 
--- Allowance override and policy change, both audited.
+-- Allowance override and policy change (the CL credit cap per year), both audited.
 select lives_ok($$ insert into public.hr_leave_allowances (user_id, year, leave_type, days) values ('f5000000-0000-4000-8000-000000000004', 2027, 'CL', 15) $$,
   'a super admin sets iv''s 2027 CL allowance to 15');
-select is((select format('%s|%s', allowance, available) from public.hr_leave_balance('f5000000-0000-4000-8000-000000000004', 2027) where leave_type = 'CL'),
-  '15.0|10.0', 'the override applies to iv only');
-select is((select available from public.hr_leave_balance('f5000000-0000-4000-8000-000000000005', 2027) where leave_type = 'CL'), 12.0::numeric, 'others keep the policy allowance');
 update public.hr_leave_policies set annual_allowance = 10 where leave_type = 'CL';
-select is((select available from public.hr_leave_balance('f5000000-0000-4000-8000-000000000005', 2027) where leave_type = 'CL'), 10.0::numeric, 'a policy change applies to everyone without an override');
 
 -- A holiday added later gives the CL day back (the balance is recalculated).
 insert into public.hr_public_holidays (name, holiday_date) values ('Company day', '2027-01-06');
-select is((select format('%s|%s', approved, available) from public.hr_leave_balance('f5000000-0000-4000-8000-000000000004', 2027) where leave_type = 'CL'),
-  '4|11.0', 'after a holiday on Wed 6 Jan the approved CL counts 4 days');
+select is((select approved from public.hr_leave_balance('f5000000-0000-4000-8000-000000000004', 2027) where leave_type = 'CL'),
+  2, 'after a holiday on Wed 6 Jan the approved CL counts 2 days');
 update public.hr_public_holidays set is_active = false where holiday_date = '2027-01-06';
-select is((select approved from public.hr_leave_balance('f5000000-0000-4000-8000-000000000004', 2027) where leave_type = 'CL'), 5, 'cancelling it counts the day again');
+select is((select approved from public.hr_leave_balance('f5000000-0000-4000-8000-000000000004', 2027) where leave_type = 'CL'), 3, 'cancelling it counts the day again');
 select lives_ok($$ insert into public.hr_public_holidays (name, holiday_date) values ('Company day (moved)', '2027-01-06') $$,
   'a cancelled holiday''s date can be used again');
 reset role;

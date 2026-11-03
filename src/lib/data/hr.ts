@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Holiday, LeaveApplication, LeaveType } from "@/lib/hr/leave";
+import type { ClCredit, Holiday, LeaveApplication, LeaveType } from "@/lib/hr/leave";
 import { createClient } from "@/lib/supabase/server";
 
 import { loadError } from "./errors";
@@ -94,6 +94,14 @@ export async function getLeaveBalance(userId: string | null, year: number): Prom
     pending: r.pending,
     available: r.available === null ? null : Number(r.available),
   }));
+}
+
+/** Monthly CL credits with expiry and status (own, or anyone's for a super admin; the database checks). */
+export async function getClCredits(userId: string | null): Promise<ClCredit[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("hr_cl_credits", { p_user_id: userId ?? undefined });
+  if (error) throw loadError("CL credits", error);
+  return (data ?? []).map((c) => ({ month: c.credit_month, expiresOn: c.expires_on, status: c.status as ClCredit["status"] }));
 }
 
 /** Holidays in [from, to]; cancelled ones only when asked. */

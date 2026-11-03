@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { approvedLeaveByDate, formatDateRange, holidaysByDate, isIsoDate, validateLeaveInput, type LeaveApplication } from "./leave.ts";
+import { approvedLeaveByDate, formatDateRange, holidaysByDate, isIsoDate, summarizeClCredits, validateLeaveInput, type LeaveApplication } from "./leave.ts";
 
 const app = (p: Partial<LeaveApplication>): LeaveApplication => ({
   id: "a", userId: "u", type: "CL", start: "2027-01-04", end: "2027-01-05", workingDays: 2, reason: "x",
@@ -55,5 +55,18 @@ describe("calendar maps", () => {
       { id: "2", name: "Cancelled", date: "2027-01-27", description: null, isActive: false },
     ]);
     assert.deepEqual([...m.entries()], [["2027-01-26", "Republic Day"]]);
+  });
+});
+
+describe("CL credit summary", () => {
+  it("counts available, used and expired credits and the next expiry", () => {
+    const credits = [
+      { month: "2027-01-01", expiresOn: "2027-03-31", status: "EXPIRED" as const },
+      { month: "2027-02-01", expiresOn: "2027-04-30", status: "AVAILABLE" as const },
+      { month: "2027-03-01", expiresOn: "2027-05-31", status: "USED" as const },
+      { month: "2027-04-01", expiresOn: "2027-06-30", status: "AVAILABLE" as const },
+    ];
+    assert.deepEqual(summarizeClCredits(credits, "2027-04-10"), { available: 2, used: 1, expired: 1, expiringThisMonth: 1, nextExpiry: "2027-04-30" });
+    assert.deepEqual(summarizeClCredits([], "2027-04-10"), { available: 0, used: 0, expired: 0, expiringThisMonth: 0, nextExpiry: null });
   });
 });

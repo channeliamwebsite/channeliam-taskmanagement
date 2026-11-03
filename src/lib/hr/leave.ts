@@ -67,6 +67,29 @@ export type LeaveApplication = {
   createdAt: string;
 };
 
+/** One monthly CL credit (036): credited on the 1st, usable through `expiresOn`. */
+export type ClCredit = { month: string; expiresOn: string; status: "AVAILABLE" | "USED" | "EXPIRED" | "UPCOMING" };
+
+export const CL_CREDIT_LABELS: Record<ClCredit["status"], string> = {
+  AVAILABLE: "Available",
+  USED: "Used or reserved",
+  EXPIRED: "Expired",
+  UPCOMING: "Reserved (future)",
+};
+
+/** Counts for the balance card; `expiringThisMonth` are available credits that lapse by the end of `today`'s month. */
+export function summarizeClCredits(credits: readonly ClCredit[], today: string) {
+  const monthEnd = `${today.slice(0, 7)}-31`;
+  const available = credits.filter((c) => c.status === "AVAILABLE");
+  return {
+    available: available.length,
+    used: credits.filter((c) => c.status === "USED").length,
+    expired: credits.filter((c) => c.status === "EXPIRED").length,
+    expiringThisMonth: available.filter((c) => c.expiresOn <= monthEnd).length,
+    nextExpiry: available.map((c) => c.expiresOn).sort()[0] ?? null,
+  };
+}
+
 export type Holiday = { id: string; name: string; date: string; description: string | null; isActive: boolean };
 
 /** Every date (inclusive) of an approved application, mapped to its type. Later applications never overlap (database constraint). */

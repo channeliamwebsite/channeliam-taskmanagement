@@ -13,14 +13,14 @@ export async function loadExportInput(scope: ReportScope): Promise<ExportInput> 
   const { month, dates, reports } = await buildMonthReport(scope.month, { userId: scope.userId, department: scope.department });
   const year = Number(month.slice(0, 4));
 
-  const clBalances = new Map<string, { allowance: number | null; approved: number; pending: number }>();
+  const clBalances = new Map<string, { allowance: number | null; approved: number; pending: number; available: number | null }>();
   const ids = reports.map((r) => r.employee.userId);
   for (let i = 0; i < ids.length; i += 10) {
     const chunk = ids.slice(i, i + 10);
     const rows = await Promise.all(chunk.map((id) => getLeaveBalance(id, year)));
     chunk.forEach((id, j) => {
       const cl = rows[j].find((b) => b.type === "CL");
-      if (cl) clBalances.set(id, { allowance: cl.allowance, approved: cl.approved, pending: cl.pending });
+      if (cl) clBalances.set(id, { allowance: cl.allowance, approved: cl.approved, pending: cl.pending, available: cl.available });
     });
   }
 

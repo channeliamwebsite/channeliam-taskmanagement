@@ -25,7 +25,7 @@ const input: ExportInput = {
     ...month,
     applications: [{ id: "a1", userId: "u1", type: "CL", start: "2027-02-02", end: "2027-02-02", workingDays: 1, reason: "Family", status: "APPROVED", decidedBy: "sa", decidedAt: "2027-01-20T10:00:00Z", rejectionReason: null, createdAt: "2027-01-19T10:00:00Z" }],
   }],
-  clBalances: new Map([["u1", { allowance: 12, approved: 3, pending: 1 }]]),
+  clBalances: new Map([["u1", { allowance: 12, approved: 3, pending: 1, available: 2 }]]),
   names: new Map([["sa", "Super Admin"]]),
 };
 
@@ -68,9 +68,9 @@ describe("Excel export", () => {
     assert.deepEqual((leave.getRow(2).values as unknown[]).slice(1), ["CH-0001", "Asha", "Casual Leave", "2027-02-02", "2027-02-02", 1, "Approved", "Super Admin", "2027-01-20"]);
 
     const summary = cells(wb.getWorksheet("Employee Summary")!, 2);
-    assert.equal(summary("CL allowance (year)"), 12);
+    assert.equal(summary("CL credited (year)"), 12);
     assert.equal(summary("CL used (year)"), 3);
-    assert.equal(summary("CL balance (year)"), 9);
+    assert.equal(summary("CL available (today)"), 2);
   });
 
   it("contains only the employees it is given and no identity or contact columns", async () => {

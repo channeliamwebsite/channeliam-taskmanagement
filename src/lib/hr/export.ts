@@ -25,7 +25,7 @@ export type ExportInput = {
   timeZone: string;
   reports: { employee: ExportEmployee; days: ReportDay[]; totals: ReportTotals; applications: LeaveApplication[] }[];
   /** CL for the report's year, per employee. */
-  clBalances: ReadonlyMap<string, { allowance: number | null; approved: number; pending: number }>;
+  clBalances: ReadonlyMap<string, { allowance: number | null; approved: number; pending: number; available: number | null }>;
   /** Names for approvers (user id → name). */
   names: ReadonlyMap<string, string>;
 };
@@ -153,10 +153,10 @@ export async function buildAttendanceWorkbook(input: ExportInput): Promise<Buffe
     { header: "Joining date", key: "joined", width: 12 },
     { header: "Employment status", key: "empStatus", width: 14 },
     { header: "Employment type", key: "empType", width: 12 },
-    { header: "CL allowance (year)", key: "clAllowance", width: 11 },
+    { header: "CL credited (year)", key: "clAllowance", width: 11 },
     { header: "CL used (year)", key: "clUsed", width: 9 },
     { header: "CL pending (year)", key: "clPending", width: 9 },
-    { header: "CL balance (year)", key: "clBalance", width: 9 },
+    { header: "CL available (today)", key: "clBalance", width: 10 },
     { header: "LWP days", key: "lwp", width: 8 },
     { header: "WFH days", key: "wfh", width: 8 },
     { header: "Present days", key: "present", width: 9 },
@@ -181,7 +181,7 @@ export async function buildAttendanceWorkbook(input: ExportInput): Promise<Buffe
       clAllowance: cl?.allowance ?? "",
       clUsed: cl?.approved ?? "",
       clPending: cl?.pending ?? "",
-      clBalance: cl && cl.allowance !== null ? cl.allowance - cl.approved : "",
+      clBalance: cl?.available ?? "",
       lwp: r.totals.lwp,
       wfh: r.totals.wfh,
       present: r.totals.present,

@@ -11,7 +11,8 @@ import { addMonths, formatMonth } from "@/lib/attendance";
 import { BUSINESS_TIMEZONE } from "@/lib/domain";
 import { buildMonthReport, parseReportMonth } from "@/lib/data/hr-month";
 import { getHrProfile } from "@/lib/data/hr-people";
-import { listLeaveForUser } from "@/lib/data/hr";
+import { getClCredits, listLeaveForUser } from "@/lib/data/hr";
+import { ClCreditsTable } from "@/components/hr/cl-credits";
 
 import { getPageContext } from "../../../_components/context";
 
@@ -27,10 +28,11 @@ export default async function EmployeeDetailPage({ params, searchParams }: PageP
   const month = parseReportMonth(sp.month);
   const year = Number(month.slice(0, 4));
 
-  const [profile, report, leave] = await Promise.all([
+  const [profile, report, leave, credits] = await Promise.all([
     getHrProfile(userId),
     buildMonthReport(month, { userId }),
     listLeaveForUser(userId, `${year}-01-01`, `${year}-12-31`),
+    getClCredits(userId),
   ]);
   if (!profile) notFound();
   const mine = report.reports[0];
@@ -92,6 +94,10 @@ export default async function EmployeeDetailPage({ params, searchParams }: PageP
         ) : (
           <p className="text-sm text-muted-foreground">No attendance for this month.</p>
         )}
+      </Section>
+
+      <Section title="CL credits" className="mt-4">
+        <ClCreditsTable credits={credits} />
       </Section>
 
       <Section title={`Leave · ${year}`} className="mt-4">

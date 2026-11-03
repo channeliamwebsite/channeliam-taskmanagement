@@ -1693,6 +1693,14 @@ export type Database = {
       }
       hr_apply_leave: { Args: { p_end: string; p_reason: string; p_start: string; p_type: Database["public"]["Enums"]["hr_leave_type"] }; Returns: string }
       hr_cancel_leave: { Args: { p_id: string }; Returns: undefined }
+      hr_cl_credits: {
+        Args: { p_user_id?: string }
+        Returns: {
+          credit_month: string
+          expires_on: string
+          status: string
+        }[]
+      }
       hr_decide_leave: { Args: { p_approve: boolean; p_id: string; p_rejection_reason?: string }; Returns: undefined }
       hr_leave_balance: {
         Args: { p_user_id?: string; p_year?: number }

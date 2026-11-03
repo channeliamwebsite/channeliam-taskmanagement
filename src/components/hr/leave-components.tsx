@@ -103,9 +103,9 @@ export function LeaveApplyForm({ today, clAvailable }: { today: string; clAvaila
         <p className={cn("text-sm", overBalance ? "text-destructive" : "text-muted-foreground")} aria-live="polite">
           {days === null
             ? "Choose the dates to see the working days."
-            : `${days} working day${days === 1 ? "" : "s"} (Sundays and public holidays are not counted)${overBalance ? ` · only ${clAvailable} CL available` : ""}`}
+            : `${days} working day${days === 1 ? "" : "s"} (Sundays and public holidays are not counted)${overBalance ? ` · only ${clAvailable} CL available now (later months bring new credits)` : ""}`}
         </p>
-        <Button onClick={submit} disabled={pending || days === 0 || overBalance}>
+        <Button onClick={submit} disabled={pending || days === 0}>
           {pending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
           Submit application
         </Button>

@@ -127,4 +127,6 @@ export const ROUTE_ROLES: Record<string, readonly UserRole[]> = {
   "/team-today": ["SUPER_ADMIN", "ADMIN"],
   // Attendance & HR administration: super admins only (034, decided 2026-11-03).
   "/hr": ["SUPER_ADMIN"],
+  // Client reports (038): super admins and the client's workspace admins.
+  "/client-reports": ["SUPER_ADMIN", "ADMIN"],
 };

@@ -17,6 +17,8 @@ export function TaskFilters({
   showScope = true,
   showProject = true,
   showDepartment = true,
+  openByDefault = false,
+  showBoard = true,
 }: {
   projects: { id: string; name: string; clientId?: string | null }[];
   members: { userId: string; name: string; team?: string | null }[];
@@ -24,6 +26,10 @@ export function TaskFilters({
   showScope?: boolean;
   showProject?: boolean;
   showDepartment?: boolean;
+  /** No status chosen = open tasks only (the /tasks list); "Any status" is then status=all. */
+  openByDefault?: boolean;
+  /** False for super admins, who have no task board. */
+  showBoard?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -34,10 +40,11 @@ export function TaskFilters({
     const next = new URLSearchParams(params.toString());
     if (value) next.set(key, value);
     else next.delete(key);
+    next.delete("page"); // a new filter starts again at page 1
     startTransition(() => router.replace(`${pathname}?${next.toString()}`, { scroll: false }));
   }
 
-  const view = params.get("view") === "board" ? "board" : "list";
+  const view = showBoard && params.get("view") === "board" ? "board" : "list";
   const scope = params.get("scope") ?? "mine";
   const q = params.get("q");
   const FILTER_KEYS = ["project", "client", "assignee", "status", "priority", "dept", "startFrom", "startTo", "dueFrom", "dueTo", "sort", "q"];
@@ -82,15 +89,17 @@ export function TaskFilters({
           >
             <List className="size-3.5" aria-hidden="true" /> List
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === "board"}
-            onClick={() => update("view", "board")}
-            className={cn("inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium", view === "board" ? "bg-background shadow-xs" : "text-muted-foreground")}
-          >
-            <KanbanSquare className="size-3.5" aria-hidden="true" /> Board
-          </button>
+          {showBoard ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "board"}
+              onClick={() => update("view", "board")}
+              className={cn("inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium", view === "board" ? "bg-background shadow-xs" : "text-muted-foreground")}
+            >
+              <KanbanSquare className="size-3.5" aria-hidden="true" /> Board
+            </button>
+          ) : null}
           {showScope ? (
             <Link
               href={`/calendar${scope === "all" ? "?scope=all" : ""}`}
@@ -174,7 +183,14 @@ export function TaskFilters({
           onChange={(e) => update("status", e.target.value || null)}
           className="sm:w-40"
         >
-          <option value="">Any status</option>
+          {openByDefault ? (
+            <>
+              <option value="">Open tasks</option>
+              <option value="all">Any status</option>
+            </>
+          ) : (
+            <option value="">Any status</option>
+          )}
           {TASK_STATUSES.map((s) => (
             <option key={s} value={s}>
               {TASK_STATUS_LABELS[s]}

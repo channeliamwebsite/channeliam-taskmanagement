@@ -7,6 +7,7 @@ import { ActivityFeed } from "@/components/app/activity-feed";
 import { PriorityBadge, ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { DeleteProjectButton, ProjectFormButton } from "@/components/projects/project-form-dialog";
+import { ProjectDeliverables } from "@/components/projects/project-deliverables";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { ProjectAccess } from "@/components/projects/project-access";
 import { listActiveEmployees, listProjectCollaborators } from "@/lib/data/collaborators";
@@ -165,6 +166,18 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
           <p className="text-sm whitespace-pre-wrap text-muted-foreground sm:col-span-2 lg:col-span-5">{project.description}</p>
         ) : null}
       </div>
+
+      <Section title="Open deliverables" className="mb-4">
+        <ProjectDeliverables
+          project={{ id: project.id, name: project.name, clientId: project.clientId, clientName: project.clientName }}
+          workspaceId={project.workspaceId}
+          tasks={tasks.filter((t) => !t.parentTaskId && t.status !== "COMPLETED" && t.status !== "CANCELLED")}
+          members={memberOptions}
+          selfOnly={session.permissions.assignTasks ? null : { userId: session.user.id }}
+          canAddSubtask={(t) => session.profile.role !== "INDIVIDUAL" || t.createdBy === session.user.id}
+          limit={15}
+        />
+      </Section>
 
       <TaskFilters projects={[]} members={memberOptions} showScope={false} showProject={false} showDepartment={false} />
       {rows.length === 0 ? (

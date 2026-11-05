@@ -86,6 +86,22 @@ export function sortTaskRows<Row extends Sortable>(rows: Row[], sort: TaskSort =
 }
 
 /**
+ * The same ordering as sortTaskRows, for the database (paged lists). The
+ * priority enum is declared LOW < MEDIUM < HIGH < URGENT, so descending puts
+ * the most urgent first.
+ */
+export function taskOrder(sort: TaskSort = "updated"): { column: string; options: { ascending: boolean; nullsFirst?: boolean } }[] {
+  const tail = [
+    { column: "updated_at", options: { ascending: false } },
+    { column: "id", options: { ascending: true } },
+  ];
+  if (sort === "due") return [{ column: "due_date", options: { ascending: true, nullsFirst: false } }, ...tail];
+  if (sort === "start") return [{ column: "start_date", options: { ascending: true, nullsFirst: false } }, ...tail];
+  if (sort === "priority") return [{ column: "priority", options: { ascending: false } }, ...tail];
+  return tail;
+}
+
+/**
  * Assignee filters as inner-joined, aliased embeds of task_assignees. Each
  * filter gets its own alias, so "assigned to X" and "assigned to someone in
  * the department" are independent conditions (both must hold), and neither

@@ -26,6 +26,7 @@ import {
   type TaskStatus,
   type TaskType,
 } from "@/lib/domain";
+import { parseSubtaskTitles } from "@/lib/subtask-titles";
 import { cn } from "@/lib/utils";
 
 import { AssigneePicker, type MemberOption } from "./assignee-picker";
@@ -122,6 +123,11 @@ export function TaskFormDialog(props: Props) {
   const [primaryId, setPrimaryId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  // New task with subtasks: the parent once created (so a retry never repeats
+  // it), the subtask titles still to create, and the ones that failed.
+  const [created, setCreated] = useState<{ id: string; title: string } | null>(null);
+  const [subtaskText, setSubtaskText] = useState("");
+  const [failed, setFailed] = useState<{ title: string; error: string }[]>([]);
 
   const clientMap = new Map<string, string>();
   for (const c of (props.mode === "create" && props.clients) || []) clientMap.set(c.id, c.name);
@@ -210,14 +216,19 @@ export function TaskFormDialog(props: Props) {
     setPrimaryId(null);
     setError(null);
     setConflict(false);
+    setCreated(null);
+    setSubtaskText("");
+    setFailed([]);
   }
+
+  // Subtasks can be added when creating a main task (not when the new task is itself a subtask).
+  const subtasksAllowed = isCreate && !props.parentTask && !values.parentTaskId;
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setConflict(false);
     if (!values.title.trim()) return setError("Title is required.");
-    if (isCreate && (!values.startDate || !values.dueDate)) return setError("Start date and due date are required.");
     if (values.startDate && values.dueDate && values.dueDate < values.startDate) {
       return setError("Due date cannot be before the start date.");
     }
@@ -225,28 +236,68 @@ export function TaskFormDialog(props: Props) {
     startTransition(async () => {
       if (props.mode === "create") {
         if (!selfOnly && assignees.length === 0) return setError("Assign at least one person.");
-        if (!props.parentTask && clientChosen && !visibleProjects.some((p) => p.id === projectId)) {
+        if (!created && !props.parentTask && clientChosen && !visibleProjects.some((p) => p.id === projectId)) {
           return setError(
             visibleProjects.length ? "Choose one of this client's projects." : "This client has no projects yet. Create a project for it first.",
           );
         }
-        const result = await createTask({
+        // Subtasks use the same project, workspace, assignees and priority as
+        // their parent, and the same createTask action (same validation and
+        // permission rules). The parent is created once: after a partial
+        // failure, Save retries only the subtasks still listed.
+        const base = {
           projectId: props.parentTask?.projectId ?? (projectId || null),
           workspaceId: props.workspaceId ?? null,
-          parentTaskId: props.parentTask?.id ?? (values.parentTaskId || null),
-          title: values.title,
-          description: values.description,
-          status: values.status,
           priority: values.priority,
-          startDate: values.startDate || null,
-          scheduledDate: values.scheduledDate || null,
-          dueDate: values.dueDate || null,
           assigneeIds: selfOnly ? [selfOnly.userId] : assignees,
           primaryAssigneeId: selfOnly ? selfOnly.userId : primaryId,
-        });
-        if (!result.ok) return setError(result.error);
-        toast.success(props.parentTask || values.parentTaskId ? "Subtask created" : "Task created", {
-          action: { label: "Open", onClick: () => router.push(`/tasks/${result.data.id}`) },
+        };
+        let parent = created;
+        if (!parent) {
+          const result = await createTask({
+            ...base,
+            parentTaskId: props.parentTask?.id ?? (values.parentTaskId || null),
+            title: values.title,
+            description: values.description,
+            status: values.status,
+            startDate: values.startDate || null,
+            scheduledDate: values.scheduledDate || null,
+            dueDate: values.dueDate || null,
+          });
+          if (!result.ok) return setError(result.error);
+          parent = { id: result.data.id, title: values.title.trim() };
+          setCreated(parent);
+        }
+
+        const remaining: { title: string; error: string }[] = [];
+        let made = 0;
+        for (const title of subtasksAllowed ? parseSubtaskTitles(subtaskText) : []) {
+          // Same dates as the parent, so subtasks join the same day's plan (My Day,
+          // morning snapshot, evening report) instead of "Not yet scheduled".
+          const r = await createTask({
+            ...base,
+            parentTaskId: parent.id,
+            title,
+            startDate: values.startDate || null,
+            scheduledDate: values.scheduledDate || null,
+            dueDate: values.dueDate || null,
+          });
+          if (r.ok) made += 1;
+          else remaining.push({ title, error: r.error });
+        }
+        const openId = parent.id;
+        if (remaining.length) {
+          // Keep the dialog open with only the failed subtasks; nothing created is lost or repeated.
+          setSubtaskText(remaining.map((f) => f.title).join("\n"));
+          setFailed(remaining);
+          router.refresh();
+          return setError(
+            `“${parent.title}” was created${made ? ` with ${made} subtask${made === 1 ? "" : "s"}` : ""}, but ${remaining.length} subtask${remaining.length === 1 ? "" : "s"} could not be created. Fix or remove them below and save again, or close.`,
+          );
+        }
+        const what = props.parentTask || values.parentTaskId ? "Subtask created" : "Task created";
+        toast.success(made ? `${what} with ${made} subtask${made === 1 ? "" : "s"}` : what, {
+          action: { label: "Open", onClick: () => router.push(`/tasks/${openId}`) },
         });
         props.onOpenChange(false);
         reset();
@@ -304,7 +355,7 @@ export function TaskFormDialog(props: Props) {
   );
   const startField = (
     <div className="grid gap-1.5">
-      <Label htmlFor="task-start">Start date{isCreate ? <span className="text-destructive"> *</span> : null}</Label>
+      <Label htmlFor="task-start">Start date{isCreate ? <span className="text-xs text-muted-foreground"> (optional)</span> : null}</Label>
       <Input id="task-start" type="date" value={values.startDate} onChange={(e) => set("startDate", e.target.value)} className="h-9" />
     </div>
   );
@@ -325,7 +376,7 @@ export function TaskFormDialog(props: Props) {
   );
   const dueField = (
     <div className="grid gap-1.5">
-      <Label htmlFor="task-due">Due date{isCreate ? <span className="text-destructive"> *</span> : null}</Label>
+      <Label htmlFor="task-due">Due date{isCreate ? <span className="text-xs text-muted-foreground"> (optional)</span> : null}</Label>
       <Input id="task-due" type="date" value={values.dueDate} onChange={(e) => set("dueDate", e.target.value)} className="h-9" />
     </div>
   );
@@ -351,7 +402,7 @@ export function TaskFormDialog(props: Props) {
             {isCreate
               ? selfOnly
                 ? "Add a task for yourself. Optionally pick a client/project or make it a subtask of one of your tasks."
-                : "Title, dates, priority and at least one assignee are required."
+                : "Title, priority and at least one assignee are required. Without a due date the priority target applies."
               : "Update the task details."}
           </DialogDescription>
         </DialogHeader>
@@ -454,7 +505,32 @@ export function TaskFormDialog(props: Props) {
               ) : null}
               {descriptionField}
 
-              {!props.parentTask ? (
+              {subtasksAllowed ? (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="task-subtasks">Subtasks (optional, one per line)</Label>
+                  <Textarea
+                    id="task-subtasks"
+                    value={subtaskText}
+                    onChange={(e) => setSubtaskText(e.target.value)}
+                    rows={3}
+                    placeholder={"Draft\nReview\nPublish"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Created under this task with the same project, assignees and priority. Edit them later on the task page.
+                  </p>
+                  {failed.length ? (
+                    <ul className="grid gap-0.5 text-xs text-destructive">
+                      {failed.map((f) => (
+                        <li key={f.title}>
+                          “{f.title}”: {f.error}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!props.parentTask && !created ? (
                 <div className="grid gap-3">
                   <button
                     type="button"
@@ -525,7 +601,7 @@ export function TaskFormDialog(props: Props) {
             </Button>
             <Button type="submit" disabled={pending}>
               {pending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
-              {isCreate ? "Create task" : "Save changes"}
+              {isCreate ? (created ? "Create remaining subtasks" : "Create task") : "Save changes"}
             </Button>
           </DialogFooter>
         </form>

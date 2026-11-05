@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Loader2, Upload } from "lucide-react";
+import { Eye, Loader2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { revealPan, setIdentity, updateHrProfile, uploadPhoto, type HrProfileInput } from "@/lib/actions/hr-profiles";
+import { revealPan, setIdentity, updateHrProfile, type HrProfileInput } from "@/lib/actions/hr-profiles";
 import { maskAadhaar, maskPan } from "@/lib/hr/pan";
 
 import { GENDER_LABELS, STATUS_LABELS, TYPE_LABELS } from "./profile-view";
@@ -199,30 +199,5 @@ export function IdentityForm({ userId, panLast4, aadhaarLast4 }: { userId: strin
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-export function PhotoUpload({ userId }: { userId: string }) {
-  const [pending, startTransition] = useTransition();
-  return (
-    <form
-      className="flex flex-wrap items-center gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const form = new FormData(e.currentTarget);
-        startTransition(async () => {
-          const r = await uploadPhoto(userId, form);
-          if (r.ok) toast.success("Photo updated.");
-          else toast.error(r.error);
-        });
-      }}
-    >
-      <Input name="photo" type="file" accept="image/jpeg,image/png,image/webp" className="h-9 max-w-64" aria-label="Profile photo" />
-      <Button type="submit" variant="outline" disabled={pending}>
-        {pending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Upload aria-hidden="true" />}
-        Upload photo
-      </Button>
-      <span className="text-xs text-muted-foreground">JPEG, PNG or WebP, up to 2 MB. Stored privately.</span>
-    </form>
   );
 }

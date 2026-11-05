@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { markAllNotificationsRead, markNotificationRead } from "@/lib/actions/notifications";
 import { formatDateTime } from "@/lib/domain";
+import { notificationHref } from "@/lib/notification-links";
 import { cn } from "@/lib/utils";
 
 export function InboxList({
@@ -48,7 +49,7 @@ export function InboxList({
               onClick={() =>
                 startTransition(async () => {
                   if (!n.isRead) await markNotificationRead(n.id);
-                  router.push(n.taskId ? `/tasks/${n.taskId}` : "/my-day");
+                  router.push(notificationHref(n));
                 })
               }
             >

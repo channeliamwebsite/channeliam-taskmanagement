@@ -14,7 +14,7 @@ async function getNotifications(userId: string) {
   const [{ data: items }, { count }] = await Promise.all([
     supabase
       .from("notifications")
-      .select("id, title, message, is_read, created_at, task_id")
+      .select("id, type, title, message, is_read, created_at, task_id")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(10),
@@ -31,6 +31,7 @@ async function getNotifications(userId: string) {
     isRead: n.is_read,
     createdAt: n.created_at,
     taskId: n.task_id,
+    type: n.type,
   }));
   return { list, unread: count ?? 0 };
 }
@@ -71,7 +72,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
   // admins also get the company-wide HR pages (the /hr routes check the role).
   const myAttendance: NavItem[] = [
     { href: "/attendance", label: "My Attendance", icon: "attendance" },
-    { href: "/attendance/leave", label: role === "SUPER_ADMIN" ? "My Leave" : "Leave Applications", icon: "leave" },
+    // Super admins decide leave under Attendance & HR; they do not apply for it.
+    ...(role === "SUPER_ADMIN" ? [] : [{ href: "/attendance/leave", label: "Leave Applications", icon: "leave" } as NavItem]),
     { href: "/attendance/profile", label: "My Profile", icon: "profile" },
     { href: "/attendance/reports", label: "My Reports", icon: "myreports" },
   ];
@@ -94,8 +96,10 @@ export async function AppShell({ children }: { children: ReactNode }) {
     items: [
       { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
       { href: "/clients", label: "Clients", icon: "clients" },
+      ...(permissions.viewTeamReports ? [{ href: "/client-reports", label: "Client Reports", icon: "myreports" } as NavItem] : []),
       { href: "/projects", label: "Projects", icon: "projects" },
-      { href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" },
+      // Task boards are for admins managing their team's work, not for super admins.
+      ...(role === "SUPER_ADMIN" ? [] : [{ href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" } as NavItem]),
     ],
   };
   // The single Bug Reports entry, for every role: the page holds the form and the list.

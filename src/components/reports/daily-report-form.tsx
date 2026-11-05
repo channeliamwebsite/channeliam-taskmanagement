@@ -50,14 +50,17 @@ export function DailyReportForm({
   initial,
   isUpdate,
   completed,
-  notCompleted,
+  inProgress,
+  pendingTasks,
   blocked,
 }: {
   workspaceId: string;
   initial: DailyReportValues;
   isUpdate: boolean;
   completed: TaskRef[];
-  notCompleted: TaskRef[];
+  /** Open work, split by status: In progress / In review, and To do. */
+  inProgress: TaskRef[];
+  pendingTasks: TaskRef[];
   blocked: TaskRef[];
 }) {
   const [values, setValues] = useState(initial);
@@ -84,9 +87,10 @@ export function DailyReportForm({
           {error}
         </p>
       ) : null}
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <TaskGroup label="Completed today" tasks={completed} tone="text-emerald-600" />
-        <TaskGroup label="Not completed" tasks={notCompleted} tone={notCompleted.length ? "text-amber-600" : ""} />
+        <TaskGroup label="In progress" tasks={inProgress} tone={inProgress.length ? "text-blue-600" : ""} />
+        <TaskGroup label="Pending" tasks={pendingTasks} tone={pendingTasks.length ? "text-amber-600" : ""} />
         <TaskGroup label="Blocked" tasks={blocked} tone={blocked.length ? "text-red-600" : ""} />
       </div>
       <p className="-mt-2 text-xs text-muted-foreground">Counts come from your tasks and are recorded when you submit.</p>

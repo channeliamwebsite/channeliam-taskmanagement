@@ -293,6 +293,48 @@ export type Database = {
           },
         ]
       }
+      client_report_settings: {
+        Row: {
+          auto_delivery: boolean
+          client_id: string
+          created_at: string
+          first_period_start: string
+          frequency_days: number
+          is_active: boolean
+          recipient_authorized_at: string | null
+          recipient_authorized_by: string | null
+          recipient_email: string | null
+          report_format: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
+      client_reports: {
+        Row: {
+          attempts: number
+          client_id: string
+          created_at: string
+          error: string | null
+          frequency_days: number
+          generated_at: string | null
+          generated_by: string | null
+          id: string
+          period_end: string
+          period_start: string
+          priorities_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          snapshot: Json | null
+          status: string
+          updates_note: string | null
+        }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
       clients: {
         Row: {
           contact_email: string | null
@@ -980,6 +1022,7 @@ export type Database = {
       notifications: {
         Row: {
           created_at: string
+          dedupe_key: string | null
           id: string
           is_read: boolean
           meeting_link_id: string | null
@@ -995,6 +1038,7 @@ export type Database = {
         ComputedFields: never
         Insert: {
           created_at?: string
+          dedupe_key?: string | null
           id?: string
           is_read?: boolean
           meeting_link_id?: string | null
@@ -1009,6 +1053,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          dedupe_key?: string | null
           id?: string
           is_read?: boolean
           meeting_link_id?: string | null
@@ -1683,6 +1728,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      generate_client_reports_now: { Args: { p_client_id: string }; Returns: number }
       get_client_contacts: {
         Args: { p_workspace_id: string }
         Returns: {
@@ -1715,6 +1761,44 @@ export type Database = {
       hr_log_pan_reveal: { Args: { p_reason: string; p_user_id: string }; Returns: undefined }
       hr_set_identity: { Args: { p_aadhaar_last4: string; p_pan_ciphertext: string; p_pan_key_version: number; p_pan_last4: string; p_update_aadhaar: boolean; p_update_pan: boolean; p_user_id: string }; Returns: undefined }
       hr_working_days: { Args: { p_end: string; p_start: string }; Returns: number }
+      project_task_counts: {
+        Args: { p_project_ids: string[] }
+        Returns: { completed: number; project_id: string; total: number }[]
+      }
+      retry_client_report: { Args: { p_report_id: string }; Returns: string }
+      retry_scheduled_job: { Args: { p_job: string }; Returns: number }
+      review_client_report: {
+        Args: { p_mark_reviewed: boolean; p_priorities_note: string; p_report_id: string; p_updates_note: string }
+        Returns: undefined
+      }
+      save_client_report_settings: {
+        Args: {
+          p_client_id: string
+          p_first_period_start: string
+          p_frequency_days: number
+          p_is_active: boolean
+          p_recipient_email?: string
+          p_report_format: string
+        }
+        Returns: undefined
+      }
+      scheduled_job_health: {
+        Args: never
+        Returns: {
+          active: boolean
+          failures_24h: number
+          job_name: string
+          last_message: string
+          last_run_at: string
+          last_status: string
+          runs_24h: number
+          schedule: string
+        }[]
+      }
+      set_client_report_delivery: {
+        Args: { p_auto_delivery: boolean; p_authorize_recipient: boolean; p_client_id: string }
+        Returns: undefined
+      }
       set_task_assignees: {
         Args: { p_primary_id?: string; p_task_id: string; p_user_ids: string[] }
         Returns: undefined
@@ -1802,6 +1886,9 @@ export type Database = {
         | "MEETING_SCHEDULED"
         | "MEETING_UPDATED"
         | "MEETING_CANCELLED"
+        | "LEAVE_SUBMITTED"
+        | "LEAVE_DECIDED"
+        | "REPORT_REMINDER"
       priority_level: "LOW" | "MEDIUM" | "HIGH" | "URGENT"
       project_status:
         | "PLANNING"
@@ -2011,6 +2098,9 @@ export const Constants = {
         "MEETING_SCHEDULED",
         "MEETING_UPDATED",
         "MEETING_CANCELLED",
+        "LEAVE_SUBMITTED",
+        "LEAVE_DECIDED",
+        "REPORT_REMINDER",
       ],
       priority_level: ["LOW", "MEDIUM", "HIGH", "URGENT"],
       project_status: [

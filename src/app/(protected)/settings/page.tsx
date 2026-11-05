@@ -7,6 +7,8 @@ import { ProfileForm } from "@/components/settings/profile-form";
 import { TimezoneForm } from "@/components/settings/timezone-form";
 import { ROLE_LABELS } from "@/lib/auth/roles";
 import { MeetingLinksManager } from "@/components/settings/meeting-links-manager";
+import { ScheduledJobs } from "@/components/settings/scheduled-jobs";
+import { getScheduledJobs } from "@/lib/data/jobs";
 import { listMeetingLinks } from "@/lib/data/meetings";
 import { getMyWorkspaces, getWorkspaceMembers } from "@/lib/data/workspace";
 import { displayName } from "@/lib/domain";
@@ -103,6 +105,15 @@ export default async function SettingsPage() {
               />
             </Section>
           </div>
+        ) : null}
+
+        {isSuperAdmin ? (
+          <Section title="Scheduled jobs">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Reminders, morning reports and client reports run automatically. &quot;Run now&quot; is safe to repeat: it never creates duplicates.
+            </p>
+            <ScheduledJobs jobs={await getScheduledJobs()} />
+          </Section>
         ) : null}
 
         <Section title="Session">

@@ -1,9 +1,9 @@
 import "server-only";
 
-import type { Priority, ProjectStatus, TaskStatus } from "@/lib/domain";
+import type { Priority, ProjectStatus } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/server";
-import { countLeafTasks, percent } from "@/lib/progress";
-import { PAGE_SIZE, chunk, fetchAllPages } from "@/lib/task-query";
+import { percent } from "@/lib/progress";
+import { chunk } from "@/lib/task-query";
 import { loadError } from "./errors";
 
 export type ProjectSummary = {
@@ -43,29 +43,23 @@ type ProjectRow = {
   owner: { full_name: string | null; email: string | null } | null;
 };
 
-/** Task counts per project, computed from tasks visible to the caller. */
+/**
+ * Task counts per project, computed in the database from tasks visible to the
+ * caller (public.project_task_counts, migration 037: RLS applies). Only leaf
+ * tasks are counted, so a parent and its subtasks are not counted twice — the
+ * same rule as countLeafTasks in src/lib/progress.ts.
+ */
 async function taskCounts(projectIds: string[]) {
   const counts = new Map<string, { total: number; completed: number }>();
   if (projectIds.length === 0) return counts;
   const supabase = await createClient();
-  // Every visible task is read (pages are walked by id instead of stopping at
-  // the API row limit); only leaf tasks are counted, so a parent and its
-  // subtasks are not counted twice.
-  const rows: { id: string; project_id: string; status: TaskStatus; parent_task_id: string | null }[] = [];
   for (const ids of chunk(projectIds)) {
-    rows.push(
-      ...(await fetchAllPages((after) => {
-        let q = supabase.from("tasks").select("id, project_id, status, parent_task_id").in("project_id", ids).neq("status", "CANCELLED");
-        if (after) q = q.gt("id", after);
-        return q.order("id").limit(PAGE_SIZE);
-      }, "Failed to load project progress")),
-    );
-  }
-  for (const [projectId, c] of countLeafTasks(
-    rows.map((t) => ({ id: t.id, parentTaskId: t.parent_task_id, status: t.status, projectId: t.project_id })),
-    (t) => t.projectId,
-  )) {
-    counts.set(projectId, c);
+    const { data, error } = await supabase.rpc("project_task_counts", { p_project_ids: ids });
+    if (error) {
+      console.error("[data] Failed to load project progress:", error.code ?? "no-code", error.message);
+      throw new Error("Failed to load project progress");
+    }
+    for (const r of data ?? []) counts.set(r.project_id, { total: r.total, completed: r.completed });
   }
   return counts;
 }

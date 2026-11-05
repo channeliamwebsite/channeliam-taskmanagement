@@ -151,31 +151,3 @@ export async function revealPan(userId: string, reason: string): Promise<ActionR
     return fail("The PAN could not be decrypted with the configured keys.");
   }
 }
-
-const PHOTO_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
-
-/** Uploads a profile photo to the private bucket and replaces the previous one. */
-export async function uploadPhoto(userId: string, form: FormData): Promise<ActionResult> {
-  const actor = await superAdmin();
-  if (!actor.ok) return actor;
-  if (!isUuid(userId)) return fail("Invalid employee.");
-  const file = form.get("photo");
-  if (!(file instanceof File) || file.size === 0) return fail("Choose a photo.");
-  const ext = PHOTO_TYPES[file.type];
-  if (!ext) return fail("Use a JPEG, PNG or WebP image.");
-  if (file.size > 2 * 1024 * 1024) return fail("The photo must be 2 MB or smaller.");
-
-  const { data: current } = await actor.supabase.from("hr_employee_profiles").select("photo_path").eq("user_id", userId).maybeSingle();
-  if (!current) return fail(NOT_PERMITTED);
-  const path = `${userId}/photo-${Date.now()}.${ext}`;
-  const { error: uploadError } = await actor.supabase.storage.from("hr-photos").upload(path, file, { contentType: file.type, upsert: false });
-  if (uploadError) return fail("The photo could not be uploaded.");
-  const { error } = await actor.supabase.from("hr_employee_profiles").update({ photo_path: path }).eq("user_id", userId);
-  if (error) {
-    await actor.supabase.storage.from("hr-photos").remove([path]);
-    return fail(dbError(error, "Could not save the photo."));
-  }
-  if (current.photo_path) await actor.supabase.storage.from("hr-photos").remove([current.photo_path]);
-  refresh();
-  return ok();
-}

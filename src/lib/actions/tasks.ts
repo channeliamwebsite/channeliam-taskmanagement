@@ -121,8 +121,9 @@ export async function createTask(input: TaskInput): Promise<ActionResult<{ id: s
 
   const fields = validateFields(input);
   if (!fields.ok) return fields;
-  if (!fields.data.start_date || !fields.data.due_date) return fail("Start date and due date are required.");
-  // The day the work is planned for defaults to its start date.
+  // Dates are optional: without a due date the priority target (P1 2 h … P4
+  // 120 h from assignment) is shown instead. The day the work is planned for
+  // defaults to its start date.
   fields.data.scheduled_date ??= fields.data.start_date;
 
   let assignees: { ids: string[]; primary: string | null };

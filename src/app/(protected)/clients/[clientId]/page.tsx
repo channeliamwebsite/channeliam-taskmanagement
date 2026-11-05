@@ -8,8 +8,10 @@ import { ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { ClientFormButton } from "@/components/clients/client-form-button";
 import { DeleteClientButton } from "@/components/clients/delete-client-button";
+import { ProjectDeliverables } from "@/components/projects/project-deliverables";
 import { ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { CompactTaskList, StatCard } from "@/components/dashboard/widgets";
+import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { listActivity, type ActivityItem } from "@/lib/data/activity";
 import { getClient } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
@@ -65,6 +67,21 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
   const owners = members
     .filter((m) => m.isActive)
     .map((m) => ({ userId: m.userId, name: displayName({ full_name: m.fullName, email: m.email }) }));
+  // Task creation inside each project (same dialog and createTask action as everywhere else).
+  const memberOptions = members.map((m) => ({
+    userId: m.userId,
+    name: displayName({ full_name: m.fullName, email: m.email }),
+    role: m.role,
+    isActive: m.isActive,
+    team: m.team,
+  }));
+  const selfOnly = session.permissions.assignTasks ? null : { userId: session.user.id };
+  // Open deliverables per project: main tasks still open, with their subtask counts.
+  const openByProject = new Map<string, typeof open>();
+  for (const t of open) {
+    if (t.parentTaskId) continue;
+    openByProject.set(t.projectId, [...(openByProject.get(t.projectId) ?? []), t]);
+  }
 
   return (
     <>
@@ -136,22 +153,59 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
               />
             ) : (
               <ul className="-my-2 divide-y">
-                {projects.map((p) => (
-                  <li key={p.id}>
-                    <Link href={`/projects/${p.id}`} className="grid gap-1.5 py-2.5 hover:bg-muted/30">
-                      <span className="flex items-center justify-between gap-2 text-sm">
-                        <span className="truncate font-medium">{p.name}</span>
-                        <ProjectStatusBadge status={p.status} />
-                      </span>
-                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <ProgressBar value={p.progress} />
-                        <span className="shrink-0 tabular-nums">
-                          {p.completedTasks}/{p.totalTasks} · {p.dueDate ? `due ${formatDate(p.dueDate)}` : "no due date"}
-                        </span>
-                      </span>
-                    </Link>
-                  </li>
-                ))}
+                {projects.map((p) => {
+                  const deliverables = openByProject.get(p.id) ?? [];
+                  const projectOption = [{ id: p.id, name: p.name, clientId: client.id, clientName: client.name }];
+                  return (
+                    <li key={p.id}>
+                      {/* Expands in place: progress, open deliverables, and task / subtask creation. */}
+                      <details className="group">
+                        <summary className="grid cursor-pointer list-none gap-1.5 py-2.5 hover:bg-muted/30">
+                          <span className="flex items-center justify-between gap-2 text-sm">
+                            <span className="truncate font-medium">
+                              <span className="mr-1 inline-block text-muted-foreground transition-transform group-open:rotate-90">›</span>
+                              {p.name}
+                            </span>
+                            <ProjectStatusBadge status={p.status} />
+                          </span>
+                          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <ProgressBar value={p.progress} />
+                            <span className="shrink-0 tabular-nums">
+                              {p.completedTasks}/{p.totalTasks} · {p.dueDate ? `due ${formatDate(p.dueDate)}` : "no due date"}
+                            </span>
+                          </span>
+                        </summary>
+                        <div className="grid gap-3 pb-3 pl-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <NewTaskButton
+                              projects={projectOption}
+                              members={memberOptions}
+                              workspaceId={client.workspaceId}
+                              defaultProjectId={p.id}
+                              selfOnly={selfOnly}
+                              label="Add task"
+                              size="sm"
+                            />
+                            <Link href={`/projects/${p.id}`} className="text-xs text-muted-foreground hover:text-foreground hover:underline">
+                              Open full project page →
+                            </Link>
+                          </div>
+                          <p className="text-xs font-medium text-muted-foreground">
+                            Open deliverables ({deliverables.length}) · {p.progress}% complete
+                          </p>
+                          <ProjectDeliverables
+                            project={{ id: p.id, name: p.name, clientId: client.id, clientName: client.name }}
+                            workspaceId={client.workspaceId}
+                            tasks={deliverables}
+                            members={memberOptions}
+                            selfOnly={selfOnly}
+                            canAddSubtask={(t) => isAdmin || t.createdBy === session.user.id}
+                          />
+                        </div>
+                      </details>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </Section>

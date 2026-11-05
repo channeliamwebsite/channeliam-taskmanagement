@@ -18,6 +18,7 @@ import { PriorityBadge, ProgressBar, StatusBadge } from "@/components/app/badges
 import { MeetingLinksCard } from "@/components/app/meeting-links-card";
 import { PageHeader, Section } from "@/components/app/page-header";
 import { CompanyOverviewTable } from "@/components/dashboard/company-overview";
+import { EmployeePerformanceTable } from "@/components/dashboard/employee-performance";
 import { ProjectProgressTable } from "@/components/dashboard/project-progress-table";
 import {
   CompactTaskList,
@@ -44,10 +45,22 @@ import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
 import { canCreateProjects, getMyWorkspaces, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
-import { PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue } from "@/lib/domain";
+import { BUSINESS_TIMEZONE, PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue, todayISO } from "@/lib/domain";
+import { buildRangeReport } from "@/lib/data/hr-month";
+import { dashboardCounts, type DashboardCounts } from "@/lib/hr/report";
 import { isLeafTask } from "@/lib/progress";
 import { isCompletedOn, isInTodaysWorkload } from "@/lib/scheduling";
-import { employeeCounts, formatClock, meetingOccurrences, projectProgress, statusCounts, todaysWork } from "@/lib/super-admin-overview";
+import {
+  departmentProgress,
+  employeeCounts,
+  employeePerformance,
+  formatClock,
+  meetingOccurrences,
+  projectProgress,
+  statusCounts,
+  todaysWork,
+  type DateRange,
+} from "@/lib/super-admin-overview";
 import { createClient } from "@/lib/supabase/server";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -61,7 +74,19 @@ const addDays = addDaysISO;
 
 const byDue = (a: TaskSummary, b: TaskSummary) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999");
 
-export default async function DashboardPage() {
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** ?from=&to= for the super admin performance figures; one date alone means that day. */
+function parseRange(from: unknown, to: unknown): DateRange | null {
+  const f = typeof from === "string" && ISO_DATE.test(from) ? from : null;
+  const t = typeof to === "string" && ISO_DATE.test(to) ? to : null;
+  if (!f && !t) return null;
+  const a = f ?? t!;
+  const b = t ?? f!;
+  return a <= b ? { from: a, to: b } : { from: b, to: a };
+}
+
+export default async function DashboardPage({ searchParams }: PageProps<"/dashboard">) {
   const { session, workspace } = await getPageContext();
   if (!workspace) return <NoWorkspace session={session} />;
 
@@ -99,10 +124,20 @@ export default async function DashboardPage() {
 
   if (isSuperAdmin) {
     // Company-wide figures (super admins read every workspace, 025).
-    const overview = await getCompanyOverview(await getMyWorkspaces());
+    const params = await searchParams;
+    const range = parseRange(params.from, params.to);
+    // Today's attendance from the same source and rules as /hr (company-wide, India time).
+    const attendanceDay = todayISO(new Date(), BUSINESS_TIMEZONE);
+    const [overview, attendanceReport] = await Promise.all([
+      getCompanyOverview(await getMyWorkspaces()),
+      buildRangeReport(attendanceDay, attendanceDay),
+    ]);
+    const attendance = dashboardCounts(attendanceReport.reports.filter((r) => r.employee.isActive).map((r) => r.days[0]));
     return (
       <SuperAdminDashboard
         {...props}
+        range={range}
+        attendance={attendance}
         overview={overview}
         name={name}
         tracking={tracking}
@@ -174,6 +209,8 @@ type Props = {
 };
 
 type SuperAdminProps = Props & {
+  range: DateRange | null;
+  attendance: DashboardCounts;
   overview: Awaited<ReturnType<typeof getCompanyOverview>>;
   name: string;
   tracking: Awaited<ReturnType<typeof loadDailyTracking>>;
@@ -194,7 +231,7 @@ const MEETING_KIND = { MORNING: "Morning", EVENING: "Evening", OTHER: "Meeting" 
  * then client/project progress, today's reports and blockers, and meetings.
  * Super admins review reports; they do not submit them.
  */
-function SuperAdminDashboard({ session, workspace, tasks, projects, members, today, name, tracking, meetings, meetingRecords, overview }: SuperAdminProps) {
+function SuperAdminDashboard({ session, workspace, tasks, projects, members, today, name, tracking, meetings, meetingRecords, overview, range, attendance }: SuperAdminProps) {
   // Admins and Individuals who are active, plus anyone (e.g. deactivated today)
   // who still has rows in today's report. Super admins review; they do not report.
   const reported = new Set(tracking.rows.map((r) => r.userId));
@@ -228,6 +265,9 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
   const overdue = work.filter((t) => isOverdue(t.dueDate, t.status, today)).sort(byDue);
   const blocked = work.filter((t) => t.status === "BLOCKED").sort(byDue);
   const projectRows = projectProgress(projects, tasks, today);
+  const performance = employeePerformance(tasks, members, today, range, workspace.timezone);
+  const departments = departmentProgress(tasks, members, range, workspace.timezone);
+  const departmentCount = departments.filter((d) => d.department !== "No department").length;
 
   const week = Array.from({ length: 7 }, (_, i) => addDays(today, i));
   const occurrences = meetingOccurrences(meetings, meetingRecords.records, week, today);
@@ -271,7 +311,12 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
 
       {/* 1. Selected workspace: employees and tasks. Each figure opens the matching list. */}
       <div className="mb-2 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <StatCard label={`Employees · ${people.admins} Admin · ${people.individuals} Individual`} value={people.admins + people.individuals} icon={Users} href="/team?active=active" />
+        <StatCard
+          label={`Active employees · ${people.admins} Admin · ${people.individuals} Individual · ${departmentCount} department${departmentCount === 1 ? "" : "s"}`}
+          value={people.admins + people.individuals}
+          icon={Users}
+          href="/team?active=active"
+        />
         <StatCard label={`Today's tasks · ${todays.completedToday} done today`} value={todays.planned} icon={Sun} tone="info" href="/tasks?scope=all&sort=due" />
         <StatCard label="In progress" value={counts.inProgress} icon={CircleDot} tone="info" href="/tasks?scope=all&status=IN_PROGRESS" />
         <StatCard label="Pending (to do)" value={counts.pending} icon={ListTodo} href="/tasks?scope=all&status=TODO" />
@@ -289,6 +334,55 @@ function SuperAdminDashboard({ session, workspace, tasks, projects, members, tod
         Each task counted once (a parent task counts through its subtasks; cancelled tasks excluded). Reports count Admins and
         Individuals; super admins do not report.
       </p>
+
+      {/* Team attendance today: same figures as Attendance & HR → Team Attendance. */}
+      <Section
+        title="Team attendance today"
+        className="mb-6"
+        action={
+          <Link href="/hr" className={textLink}>
+            Team attendance
+          </Link>
+        }
+      >
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <StatCard label={`Present (incl. ${attendance.wfh} work from home)`} value={attendance.present} icon={CheckCircle2} tone="success" href="/hr" />
+          <StatCard label="On leave" value={attendance.onLeave} icon={CalendarDays} tone="info" href="/hr/leave" />
+          <StatCard label="Absent" value={attendance.absent} icon={AlertTriangle} tone={attendance.absent ? "danger" : "default"} href="/hr" />
+          <StatCard label="Not checked in yet" value={attendance.notCheckedIn} icon={Clock} href="/hr" />
+          <StatCard label="Active employees (all workspaces)" value={attendance.active} icon={Users} href="/hr" />
+        </div>
+      </Section>
+
+      <Section title={`Department progress (${departments.length})`} className="mb-6">
+        {departments.length ? (
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {departments.map((d) => (
+              <li key={d.department} className="rounded-lg border p-3">
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="font-medium">{d.department}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {d.completed}/{d.total} · {d.completionPercent}%
+                  </span>
+                </div>
+                <ProgressBar value={d.completionPercent} />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {d.employees} employee{d.employees === 1 ? "" : "s"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">No active employees yet.</p>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">
+          Completed / total tasks of each department&apos;s people{range ? ` (${range.from} to ${range.to})` : ""}; a shared task counts once per department.
+        </p>
+      </Section>
+
+      <Section title={`Employee performance (${performance.length})`} className="mb-6">
+        <EmployeePerformanceTable rows={performance} from={range?.from ?? ""} to={range?.to ?? ""} today={today} />
+      </Section>
 
       <Section
         title={`Employees today — tasks and reports (${employees.length})`}

@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Copy, Loader2, MoreHorizontal, UserPlus } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
@@ -72,96 +73,14 @@ function CopyLink({ link, kind = "invite" }: { link: string; kind?: "invite" | "
   );
 }
 
-export function MemberActions({
-  workspaceId,
-  member,
-  isSelf,
-  managers,
-  departments,
-  workspaces,
-}: {
-  workspaceId: string;
-  managers: ManagerOption[];
-  departments: string[];
-  /** Workspaces the super admin manages, with this member's access. */
-  workspaces: (WorkspaceOption & { member: boolean })[];
-  member: {
-    userId: string;
-    name: string;
-    fullName: string | null;
-    email: string | null;
-    role: UserRole;
-    isActive: boolean;
-    canCreateProjects: boolean;
-    canCreateClientsProjects: boolean;
-    jobTitle: string | null;
-    managerId: string | null;
-    team: string | null;
-    pendingInvite: boolean;
-  };
-  isSelf: boolean;
-}) {
+/** Invitation, password reset and activation actions shared by /team and /hr/employees/[id]. */
+function useAccountActions(workspaceId: string | null, member: { userId: string; name: string; email: string | null; isActive: boolean }) {
   const [pending, startTransition] = useTransition();
-  const [editOpen, setEditOpen] = useState(false);
-  const [removeOpen, setRemoveOpen] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
   const [link, setLink] = useState<{ url: string; kind: "invite" | "reset" } | null>(null);
-  const [fullName, setFullName] = useState(member.fullName ?? "");
-  const [role, setRole] = useState<UserRole>(member.role);
-  const [jobTitle, setJobTitle] = useState(member.jobTitle ?? "");
-  const [team, setTeam] = useState(member.team ?? "");
-  const [managerId, setManagerId] = useState(member.managerId ?? "");
-  const [access, setAccess] = useState<Record<string, boolean>>({});
-
-  function openEdit() {
-    setFullName(member.fullName ?? "");
-    setRole(member.role);
-    setJobTitle(member.jobTitle ?? "");
-    setTeam(member.team ?? "");
-    setManagerId(member.managerId ?? "");
-    setAccess(Object.fromEntries(workspaces.map((w) => [w.id, w.member])));
-    setEditOpen(true);
-  }
-
-  function run(fn: () => Promise<{ ok: boolean; error?: string }>, success: string, after?: () => void) {
-    startTransition(async () => {
-      const r = await fn();
-      if (r.ok) {
-        toast.success(success);
-        after?.();
-      } else toast.error(r.error ?? "Something went wrong.");
-    });
-  }
-
-  function save() {
-    startTransition(async () => {
-      const r = await updateMemberProfile(member.userId, {
-        fullName,
-        ...(isSelf || role === member.role ? {} : { role }),
-        jobTitle,
-        team,
-        managerId: managerId || null,
-      });
-      if (!r.ok) {
-        toast.error(r.error);
-        return;
-      }
-      // Workspace access: apply only what changed, one membership at a time.
-      const failed: string[] = [];
-      for (const w of workspaces) {
-        if (access[w.id] === undefined || access[w.id] === w.member) continue;
-        const a = await setWorkspaceAccess(w.id, member.userId, access[w.id]!);
-        if (!a.ok) failed.push(`${w.name}: ${a.error}`);
-      }
-      if (failed.length) toast.error(`Details saved, but workspace access was not fully updated — ${failed.join("; ")}`);
-      else {
-        toast.success("Employee updated");
-        setEditOpen(false);
-      }
-    });
-  }
+  const [statusOpen, setStatusOpen] = useState(false);
 
   function reissue(delivery: "email" | "link") {
+    if (!workspaceId) return;
     startTransition(async () => {
       const r = await reissueInvite(workspaceId, member.userId, delivery);
       if (!r.ok) toast.error(r.error);
@@ -171,6 +90,7 @@ export function MemberActions({
   }
 
   function resetPassword(delivery: "email" | "link") {
+    if (!workspaceId) return;
     startTransition(async () => {
       const r = await sendPasswordReset(workspaceId, member.userId, delivery);
       if (!r.ok) toast.error(r.error);
@@ -179,145 +99,8 @@ export function MemberActions({
     });
   }
 
-  return (
+  const dialogs = (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          className="inline-flex size-8 items-center justify-center rounded-lg outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-          aria-label={`Manage ${member.name}`}
-          disabled={pending}
-        >
-          {pending ? <Loader2 className="size-4 animate-spin" /> : <MoreHorizontal className="size-4" />}
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>{member.name}</DropdownMenuLabel>
-            <DropdownMenuItem onClick={openEdit}>Edit employee & access</DropdownMenuItem>
-            {member.role === "ADMIN" ? (
-              <DropdownMenuItem
-                onClick={() =>
-                  run(
-                    () => setCanCreateProjects(workspaceId, member.userId, !member.canCreateProjects),
-                    member.canCreateProjects ? "Project creation disabled" : "Project creation enabled",
-                  )
-                }
-              >
-                {member.canCreateProjects ? "Disallow creating projects" : "Allow creating projects"}
-              </DropdownMenuItem>
-            ) : null}
-            {member.role === "INDIVIDUAL" ? (
-              <DropdownMenuItem
-                onClick={() =>
-                  run(
-                    () => setCanCreateClientsProjects(workspaceId, member.userId, !member.canCreateClientsProjects),
-                    member.canCreateClientsProjects ? "Client and project creation disabled" : "Client and project creation enabled",
-                  )
-                }
-              >
-                {member.canCreateClientsProjects ? "Disallow creating clients and projects" : "Allow creating clients and projects"}
-              </DropdownMenuItem>
-            ) : null}
-            {member.pendingInvite && member.isActive ? (
-              <>
-                <DropdownMenuItem onClick={() => reissue("email")}>Resend invitation email</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => reissue("link")}>Get invite link</DropdownMenuItem>
-              </>
-            ) : null}
-            {!member.pendingInvite && member.isActive && !isSelf ? (
-              <>
-                <DropdownMenuItem onClick={() => resetPassword("email")}>Send password reset email</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => resetPassword("link")}>Get password reset link</DropdownMenuItem>
-              </>
-            ) : null}
-            {!isSelf ? (
-              <>
-                <DropdownMenuItem onClick={() => setStatusOpen(true)}>
-                  {member.isActive ? "Deactivate employee" : "Reactivate employee"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onClick={() => setRemoveOpen(true)}>
-                  Remove from workspace
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit {member.name}</DialogTitle>
-            <DialogDescription>{member.email ?? ""} · Role changes apply on the employee&apos;s next page load.</DialogDescription>
-          </DialogHeader>
-          <div className="grid max-h-[65vh] gap-4 overflow-y-auto pr-1">
-            <div className="grid gap-1.5">
-              <Label htmlFor="member-name">Full name</Label>
-              <Input id="member-name" value={fullName} onChange={(e) => setFullName(e.target.value)} maxLength={200} className="h-9" />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="member-team">Department</Label>
-              <DepartmentInput id="member-team" value={team} onChange={setTeam} departments={departments} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="member-title">Designation</Label>
-              <Input id="member-title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={200} className="h-9" />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="member-role">Role</Label>
-              <NativeSelect id="member-role" value={role} onChange={(e) => setRole(e.target.value as UserRole)} disabled={isSelf}>
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {ROLE_LABELS[r]}
-                  </option>
-                ))}
-              </NativeSelect>
-              {isSelf ? <p className="text-xs text-muted-foreground">You can&apos;t change your own role.</p> : null}
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="member-manager">Reporting manager</Label>
-              <NativeSelect id="member-manager" value={managerId} onChange={(e) => setManagerId(e.target.value)}>
-                <option value="">No reporting manager</option>
-                {managers
-                  .filter((m) => m.userId !== member.userId)
-                  .map((m) => (
-                    <option key={m.userId} value={m.userId}>
-                      {m.name}
-                    </option>
-                  ))}
-              </NativeSelect>
-            </div>
-            {workspaces.length ? (
-              <fieldset className="grid gap-2">
-                <legend className="mb-1 text-sm font-medium">Workspace access</legend>
-                {workspaces.map((w) => (
-                  <label key={w.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      checked={access[w.id] ?? w.member}
-                      disabled={isSelf}
-                      onChange={(e) => setAccess((prev) => ({ ...prev, [w.id]: e.target.checked }))}
-                    />
-                    {w.name}
-                  </label>
-                ))}
-                <p className="text-xs text-muted-foreground">Removing access keeps the employee&apos;s past tasks and reports.</p>
-              </fieldset>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={pending}>
-              Cancel
-            </Button>
-            <Button disabled={pending || !fullName.trim()} onClick={save}>
-              {pending ? <Loader2 className="animate-spin" /> : null}
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={link !== null} onOpenChange={(open) => !open && setLink(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -352,6 +135,319 @@ export function MemberActions({
           })
         }
       />
+    </>
+  );
+
+  return { pending, startTransition, reissue, resetPassword, openStatus: () => setStatusOpen(true), dialogs };
+}
+
+export type EmployeeMember = {
+  userId: string;
+  name: string;
+  fullName: string | null;
+  email: string | null;
+  role: UserRole;
+  isActive: boolean;
+  jobTitle: string | null;
+  managerId: string | null;
+  team: string | null;
+  pendingInvite: boolean;
+};
+
+/**
+ * Employment details (name, department, designation, role, reporting manager),
+ * saved with updateMemberProfile: super admins only, and RLS plus the profile
+ * guard trigger check every change. Formerly the /team edit dialog.
+ */
+export function EmploymentForm({
+  member,
+  isSelf,
+  managers,
+  departments,
+}: {
+  member: EmployeeMember;
+  isSelf: boolean;
+  managers: ManagerOption[];
+  departments: string[];
+}) {
+  const [pending, startTransition] = useTransition();
+  const [fullName, setFullName] = useState(member.fullName ?? "");
+  const [role, setRole] = useState<UserRole>(member.role);
+  const [jobTitle, setJobTitle] = useState(member.jobTitle ?? "");
+  const [team, setTeam] = useState(member.team ?? "");
+  const [managerId, setManagerId] = useState(member.managerId ?? "");
+
+  function save(event: FormEvent) {
+    event.preventDefault();
+    startTransition(async () => {
+      const r = await updateMemberProfile(member.userId, {
+        fullName,
+        ...(isSelf || role === member.role ? {} : { role }),
+        jobTitle,
+        team,
+        managerId: managerId || null,
+      });
+      if (r.ok) toast.success("Employment details saved");
+      else toast.error(r.error);
+    });
+  }
+
+  return (
+    <form onSubmit={save} className="grid gap-4">
+      <div className="grid gap-1.5">
+        <Label htmlFor="member-name">Full name</Label>
+        <Input id="member-name" value={fullName} onChange={(e) => setFullName(e.target.value)} maxLength={200} className="h-9" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="member-team">Department</Label>
+          <DepartmentInput id="member-team" value={team} onChange={setTeam} departments={departments} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="member-title">Designation</Label>
+          <Input id="member-title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={200} className="h-9" />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="member-role">Role</Label>
+          <NativeSelect id="member-role" value={role} onChange={(e) => setRole(e.target.value as UserRole)} disabled={isSelf}>
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABELS[r]}
+              </option>
+            ))}
+          </NativeSelect>
+          {isSelf ? <p className="text-xs text-muted-foreground">You can&apos;t change your own role.</p> : null}
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="member-manager">Reporting manager</Label>
+          <NativeSelect id="member-manager" value={managerId} onChange={(e) => setManagerId(e.target.value)}>
+            <option value="">No reporting manager</option>
+            {managers
+              .filter((m) => m.userId !== member.userId)
+              .map((m) => (
+                <option key={m.userId} value={m.userId}>
+                  {m.name}
+                </option>
+              ))}
+          </NativeSelect>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">Role changes apply on the employee&apos;s next page load.</p>
+      <div>
+        <Button type="submit" disabled={pending || !fullName.trim()}>
+          {pending ? <Loader2 className="animate-spin" /> : null}
+          Save employment details
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Account: invitation or password reset, activation and workspace access
+ * (super admins). `workspaceId` is a workspace the employee belongs to (the
+ * invite and reset actions check membership); null hides those two actions.
+ */
+export function AccountPanel({
+  workspaceId,
+  member,
+  isSelf,
+  workspaces,
+}: {
+  workspaceId: string | null;
+  member: EmployeeMember;
+  isSelf: boolean;
+  workspaces: (WorkspaceOption & { member: boolean })[];
+}) {
+  const actions = useAccountActions(workspaceId, member);
+  const [access, setAccess] = useState<Record<string, boolean>>(() => Object.fromEntries(workspaces.map((w) => [w.id, w.member])));
+  const changed = workspaces.some((w) => access[w.id] !== w.member);
+
+  function saveAccess() {
+    actions.startTransition(async () => {
+      // Apply only what changed, one membership at a time.
+      const failed: string[] = [];
+      for (const w of workspaces) {
+        if (access[w.id] === w.member) continue;
+        const a = await setWorkspaceAccess(w.id, member.userId, access[w.id]!);
+        if (!a.ok) failed.push(`${w.name}: ${a.error}`);
+      }
+      if (failed.length) toast.error(`Workspace access was not fully updated — ${failed.join("; ")}`);
+      else toast.success("Workspace access updated");
+    });
+  }
+
+  return (
+    <div className="grid gap-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={member.isActive ? "text-emerald-700" : "text-destructive"}>
+          {member.isActive ? (member.pendingInvite ? "Active · invitation not accepted yet" : "Active") : "Deactivated"}
+        </span>
+        {!isSelf ? (
+          <Button size="sm" variant={member.isActive ? "outline" : "default"} disabled={actions.pending} onClick={actions.openStatus}>
+            {member.isActive ? "Deactivate" : "Reactivate"}
+          </Button>
+        ) : null}
+      </div>
+      {member.isActive && workspaceId ? (
+        <div className="flex flex-wrap gap-2">
+          {member.pendingInvite ? (
+            <>
+              <Button size="sm" variant="outline" disabled={actions.pending} onClick={() => actions.reissue("email")}>
+                Resend invitation email
+              </Button>
+              <Button size="sm" variant="ghost" disabled={actions.pending} onClick={() => actions.reissue("link")}>
+                Get invite link
+              </Button>
+            </>
+          ) : !isSelf ? (
+            <>
+              <Button size="sm" variant="outline" disabled={actions.pending} onClick={() => actions.resetPassword("email")}>
+                Send password reset email
+              </Button>
+              <Button size="sm" variant="ghost" disabled={actions.pending} onClick={() => actions.resetPassword("link")}>
+                Get password reset link
+              </Button>
+            </>
+          ) : null}
+        </div>
+      ) : member.isActive ? (
+        <p className="text-xs text-muted-foreground">Add the employee to a workspace to send an invitation or a password reset.</p>
+      ) : null}
+      {workspaces.length ? (
+        <fieldset className="grid gap-2">
+          <legend className="mb-1 font-medium">Workspace access</legend>
+          {workspaces.map((w) => (
+            <label key={w.id} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={access[w.id] ?? w.member}
+                disabled={isSelf || actions.pending}
+                onChange={(e) => setAccess((prev) => ({ ...prev, [w.id]: e.target.checked }))}
+              />
+              {w.name}
+            </label>
+          ))}
+          <p className="text-xs text-muted-foreground">Removing access keeps the employee&apos;s past tasks and reports.</p>
+          {changed ? (
+            <div>
+              <Button size="sm" disabled={actions.pending} onClick={saveAccess}>
+                Save workspace access
+              </Button>
+            </div>
+          ) : null}
+        </fieldset>
+      ) : null}
+      {actions.dialogs}
+    </div>
+  );
+}
+
+export function MemberActions({
+  workspaceId,
+  member,
+  isSelf,
+}: {
+  workspaceId: string;
+  member: {
+    userId: string;
+    name: string;
+    fullName: string | null;
+    email: string | null;
+    role: UserRole;
+    isActive: boolean;
+    canCreateProjects: boolean;
+    canCreateClientsProjects: boolean;
+    jobTitle: string | null;
+    managerId: string | null;
+    team: string | null;
+    pendingInvite: boolean;
+  };
+  isSelf: boolean;
+}) {
+  const router = useRouter();
+  const actions = useAccountActions(workspaceId, member);
+  const { pending, startTransition } = actions;
+  const [removeOpen, setRemoveOpen] = useState(false);
+
+  function run(fn: () => Promise<{ ok: boolean; error?: string }>, success: string, after?: () => void) {
+    startTransition(async () => {
+      const r = await fn();
+      if (r.ok) {
+        toast.success(success);
+        after?.();
+      } else toast.error(r.error ?? "Something went wrong.");
+    });
+  }
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className="inline-flex size-8 items-center justify-center rounded-lg outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+          aria-label={`Manage ${member.name}`}
+          disabled={pending}
+        >
+          {pending ? <Loader2 className="size-4 animate-spin" /> : <MoreHorizontal className="size-4" />}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{member.name}</DropdownMenuLabel>
+            {/* Editing happens on the single employee page. */}
+            <DropdownMenuItem onClick={() => router.push(`/hr/employees/${member.userId}`)}>Edit employee & access</DropdownMenuItem>
+            {member.role === "ADMIN" ? (
+              <DropdownMenuItem
+                onClick={() =>
+                  run(
+                    () => setCanCreateProjects(workspaceId, member.userId, !member.canCreateProjects),
+                    member.canCreateProjects ? "Project creation disabled" : "Project creation enabled",
+                  )
+                }
+              >
+                {member.canCreateProjects ? "Disallow creating projects" : "Allow creating projects"}
+              </DropdownMenuItem>
+            ) : null}
+            {member.role === "INDIVIDUAL" ? (
+              <DropdownMenuItem
+                onClick={() =>
+                  run(
+                    () => setCanCreateClientsProjects(workspaceId, member.userId, !member.canCreateClientsProjects),
+                    member.canCreateClientsProjects ? "Client and project creation disabled" : "Client and project creation enabled",
+                  )
+                }
+              >
+                {member.canCreateClientsProjects ? "Disallow creating clients and projects" : "Allow creating clients and projects"}
+              </DropdownMenuItem>
+            ) : null}
+            {member.pendingInvite && member.isActive ? (
+              <>
+                <DropdownMenuItem onClick={() => actions.reissue("email")}>Resend invitation email</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => actions.reissue("link")}>Get invite link</DropdownMenuItem>
+              </>
+            ) : null}
+            {!member.pendingInvite && member.isActive && !isSelf ? (
+              <>
+                <DropdownMenuItem onClick={() => actions.resetPassword("email")}>Send password reset email</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => actions.resetPassword("link")}>Get password reset link</DropdownMenuItem>
+              </>
+            ) : null}
+            {!isSelf ? (
+              <>
+                <DropdownMenuItem onClick={actions.openStatus}>
+                  {member.isActive ? "Deactivate employee" : "Reactivate employee"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={() => setRemoveOpen(true)}>
+                  Remove from workspace
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {actions.dialogs}
 
       <ConfirmDialog
         open={removeOpen}

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  departmentProgress,
   employeeCounts,
+  employeePerformance,
+  inDateRange,
   formatClock,
   meetingOccurrences,
   projectProgress,
@@ -134,5 +137,56 @@ describe("meetingOccurrences", () => {
     assert.equal(formatClock("09:30:00"), "9:30 AM");
     assert.equal(formatClock("18:05"), "6:05 PM");
     assert.equal(formatClock(null), null);
+  });
+});
+
+describe("employeePerformance / departmentProgress", () => {
+  const a = (userId: string) => ({ userId, fullName: null, email: null });
+  const members = [
+    { userId: "u1", fullName: "Asha", email: "a@x.test", role: "INDIVIDUAL" as const, isActive: true, team: "Design" },
+    { userId: "u2", fullName: "Bala", email: "b@x.test", role: "ADMIN" as const, isActive: true, team: "Design" },
+    { userId: "u3", fullName: null, email: "c@x.test", role: "INDIVIDUAL" as const, isActive: true, team: null },
+    { userId: "off", fullName: "Gone", email: "g@x.test", role: "INDIVIDUAL" as const, isActive: false, team: "Design" },
+    { userId: "sa", fullName: "Sam", email: "s@x.test", role: "SUPER_ADMIN" as const, isActive: true, team: null },
+  ];
+  const tasks = [
+    task({ id: "t1", status: "COMPLETED", completedAt: "2026-10-20T06:00:00Z", assignees: [a("u1"), a("u2")] }),
+    task({ id: "t2", status: "IN_PROGRESS", assignees: [a("u1")] }),
+    task({ id: "t3", status: "TODO", dueDate: "2026-10-25", scheduledDate: null, assignees: [a("u1")] }),
+    task({ id: "t4", status: "CANCELLED", assignees: [a("u1")] }),
+    task({ id: "parent", status: "IN_PROGRESS", subtaskTotal: 2, assignees: [a("u1")] }),
+    task({ id: "t5", status: "TODO", assignees: [a("u3")] }),
+  ];
+
+  it("counts each employee's work with the dashboard rules (parents and cancelled excluded)", () => {
+    const rows = employeePerformance(tasks, members, TODAY, null, "Asia/Kolkata");
+    assert.deepEqual(rows.map((r) => r.userId), ["u1", "u2", "u3"], "active admins and individuals only");
+    const u1 = rows[0];
+    assert.equal(u1.department, "Design");
+    assert.deepEqual([u1.total, u1.completed, u1.inProgress, u1.pending, u1.overdue, u1.completionPercent], [3, 1, 1, 1, 1, 33]);
+    assert.equal(rows[2].name, "c@x.test");
+  });
+
+  it("matches statusCounts for one employee's tasks", () => {
+    const u1 = employeePerformance(tasks, members, TODAY, null, "Asia/Kolkata")[0];
+    const direct = statusCounts(tasks.filter((t) => t.assignees.some((x) => x.userId === "u1")), TODAY);
+    assert.equal(u1.total, direct.total);
+    assert.equal(u1.overdue, direct.overdue);
+  });
+
+  it("limits to a date range by due, scheduled or completion date", () => {
+    const range = { from: "2026-10-20", to: "2026-10-21" };
+    assert.ok(inDateRange(tasks[0], range, "Asia/Kolkata"), "completed on the 20th");
+    assert.ok(!inDateRange(tasks[1], range, "Asia/Kolkata"), "scheduled today, outside");
+    const u1 = employeePerformance(tasks, members, TODAY, range, "Asia/Kolkata")[0];
+    assert.deepEqual([u1.total, u1.completed], [1, 1]);
+  });
+
+  it("counts a shared task once per department", () => {
+    const depts = departmentProgress(tasks, members, null, "Asia/Kolkata");
+    assert.deepEqual(depts, [
+      { department: "Design", employees: 2, total: 3, completed: 1, completionPercent: 33 },
+      { department: "No department", employees: 1, total: 1, completed: 0, completionPercent: 0 },
+    ]);
   });
 });

@@ -2,7 +2,7 @@
 // Everything is derived from loaded rows; nothing is estimated.
 
 import type { UserRole } from "./auth/roles.ts";
-import { isOverdue, type TaskStatus } from "./domain.ts";
+import { isOverdue, todayISO, type TaskStatus } from "./domain.ts";
 import { isCompletedOn, isInTodaysWorkload } from "./scheduling.ts";
 
 export type OverviewTask = {
@@ -56,6 +56,94 @@ export function employeeCounts(members: readonly { role: UserRole; isActive: boo
     individuals: active.filter((m) => m.role === "INDIVIDUAL").length,
     inactive: members.filter((m) => !m.isActive && m.role !== "SUPER_ADMIN").length,
   };
+}
+
+/** Optional date range (inclusive, workspace dates) for the performance figures. */
+export type DateRange = { from: string; to: string };
+
+/**
+ * A task belongs to a date range when its due or scheduled date falls in it, or
+ * it was completed in it (workspace time). Without a range every task counts.
+ */
+export function inDateRange(t: OverviewTask, range: DateRange | null, timeZone: string): boolean {
+  if (!range) return true;
+  const within = (d: string | null) => Boolean(d) && d! >= range.from && d! <= range.to;
+  const done = t.completedAt ? todayISO(new Date(t.completedAt), timeZone) : null;
+  return within(t.dueDate) || within(t.scheduledDate) || within(done);
+}
+
+export type EmployeePerformance = StatusCounts & {
+  userId: string;
+  name: string;
+  department: string | null;
+  completionPercent: number;
+};
+
+/**
+ * Per-employee task figures with the dashboard's counting rules (statusCounts):
+ * each piece of work once, cancelled excluded. Active Admins and Individuals
+ * only; a task shared by two people counts for both.
+ */
+export function employeePerformance(
+  tasks: readonly OverviewTask[],
+  members: readonly { userId: string; fullName: string | null; email: string | null; role: UserRole; isActive: boolean; team: string | null }[],
+  today: string,
+  range: DateRange | null,
+  timeZone: string,
+): EmployeePerformance[] {
+  const byUser = new Map<string, OverviewTask[]>();
+  for (const t of tasks) {
+    if (!inDateRange(t, range, timeZone)) continue;
+    for (const a of t.assignees) byUser.set(a.userId, [...(byUser.get(a.userId) ?? []), t]);
+  }
+  return members
+    .filter((m) => m.isActive && m.role !== "SUPER_ADMIN")
+    .map((m) => {
+      const c = statusCounts(byUser.get(m.userId) ?? [], today);
+      return {
+        ...c,
+        userId: m.userId,
+        name: m.fullName?.trim() || m.email || "Unknown",
+        department: m.team?.trim() || null,
+        completionPercent: c.total ? Math.round((c.completed / c.total) * 100) : 0,
+      };
+    });
+}
+
+export type DepartmentProgress = { department: string; employees: number; total: number; completed: number; completionPercent: number };
+
+/**
+ * Completed / total per department (the assignee's department). A task counts
+ * once per department, even when several people of that department share it.
+ */
+export function departmentProgress(
+  tasks: readonly OverviewTask[],
+  members: readonly { userId: string; role: UserRole; isActive: boolean; team: string | null }[],
+  range: DateRange | null,
+  timeZone: string,
+): DepartmentProgress[] {
+  const active = members.filter((m) => m.isActive && m.role !== "SUPER_ADMIN");
+  const deptOf = new Map(active.map((m) => [m.userId, m.team?.trim() || "No department"]));
+  const groups = new Map<string, { employees: number; tasks: Map<string, OverviewTask> }>();
+  for (const m of active) {
+    const g = groups.get(deptOf.get(m.userId)!) ?? { employees: 0, tasks: new Map() };
+    g.employees += 1;
+    groups.set(deptOf.get(m.userId)!, g);
+  }
+  for (const t of tasks) {
+    if (!countable(t) || !inDateRange(t, range, timeZone)) continue;
+    for (const a of t.assignees) {
+      const dept = deptOf.get(a.userId);
+      if (dept) groups.get(dept)!.tasks.set(t.id, t);
+    }
+  }
+  return [...groups.entries()]
+    .map(([department, g]) => {
+      const list = [...g.tasks.values()];
+      const completed = list.filter((t) => t.status === "COMPLETED").length;
+      return { department, employees: g.employees, total: list.length, completed, completionPercent: list.length ? Math.round((completed / list.length) * 100) : 0 };
+    })
+    .sort((a, b) => (a.department === "No department" ? 1 : b.department === "No department" ? -1 : a.department.localeCompare(b.department)));
 }
 
 export type ProjectInput = {

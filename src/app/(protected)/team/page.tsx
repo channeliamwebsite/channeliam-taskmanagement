@@ -8,9 +8,8 @@ import { AddEmployeeButton, MemberActions } from "@/components/team/member-contr
 import { ROLE_LABELS, ROLES, ROUTE_ROLES } from "@/lib/auth/roles";
 import { getAccountStatuses } from "@/lib/data/employees";
 import { listTasks } from "@/lib/data/tasks";
-import { getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { TEAM_OPTIONS, displayName, isOverdue } from "@/lib/domain";
-import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -38,18 +37,9 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const me = session.user.id;
 
-  // Super admin only: workspace access across the workspaces they manage, and
-  // invitation / sign-in status from Supabase Auth (server-side lookup).
-  const [workspaces, accessRows, accountStatus] = isSuperAdmin
-    ? await Promise.all([
-        getMyWorkspaces(),
-        createClient().then((s) =>
-          s.from("workspace_members").select("workspace_id, user_id").in("user_id", members.map((m) => m.userId)),
-        ),
-        getAccountStatuses(members.map((m) => m.userId)),
-      ])
-    : [[], { data: [] }, new Map()];
-  const accessOf = new Set((accessRows.data ?? []).map((r) => `${r.workspace_id}:${r.user_id}`));
+  // Super admin only: invitation / sign-in status from Supabase Auth (server-side
+  // lookup). Workspace access is edited on /hr/employees/[id].
+  const accountStatus = isSuperAdmin ? await getAccountStatuses(members.map((m) => m.userId)) : new Map();
   const today = workspaceToday(workspace);
   const nameOf = new Map(members.map((m) => [m.userId, displayName({ full_name: m.fullName, email: m.email })]));
 
@@ -225,9 +215,6 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
                         <MemberActions
                           workspaceId={workspace.id}
                           isSelf={m.userId === me}
-                          managers={managers}
-                          departments={departmentOptions}
-                          workspaces={workspaces.map((w) => ({ id: w.id, name: w.name, member: accessOf.has(`${w.id}:${m.userId}`) }))}
                           member={{
                             userId: m.userId,
                             name,

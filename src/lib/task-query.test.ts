@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { assigneeFilters, chunk, fetchAllPages, sortTaskRows, uniqueById } from "./task-query.ts";
+import { assigneeFilters, chunk, fetchAllPages, sortTaskRows, taskOrder, uniqueById } from "./task-query.ts";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -132,5 +132,18 @@ describe("assigneeFilters (database-side join instead of id lists)", () => {
   it("never filters the displayed `assignees` embed", () => {
     const f = assigneeFilters({ assigneeId: "u1", assigneeIds: ["u2"] });
     assert.ok(f.conditions.every((c) => !c.column.startsWith("assignees.")));
+  });
+});
+
+describe("taskOrder (database ordering for paged lists)", () => {
+  it("matches sortTaskRows: chosen key, then most recently updated, then id", () => {
+    assert.deepEqual(taskOrder().map((o) => o.column), ["updated_at", "id"]);
+    assert.deepEqual(taskOrder("due")[0], { column: "due_date", options: { ascending: true, nullsFirst: false } });
+    assert.deepEqual(taskOrder("start")[0], { column: "start_date", options: { ascending: true, nullsFirst: false } });
+    // Enum order is LOW < MEDIUM < HIGH < URGENT: descending = most urgent first.
+    assert.deepEqual(taskOrder("priority")[0], { column: "priority", options: { ascending: false } });
+    for (const sort of ["updated", "due", "start", "priority"] as const) {
+      assert.deepEqual(taskOrder(sort).slice(-2).map((o) => o.column), ["updated_at", "id"]);
+    }
   });
 });

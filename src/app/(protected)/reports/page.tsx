@@ -308,7 +308,8 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                 initial={initial}
                 isUpdate={Boolean(todays?.evening_submitted_at)}
                 completed={ref(day.completed)}
-                notCompleted={ref(day.notCompleted)}
+                inProgress={ref(day.notCompleted.filter((t) => t.status === "IN_PROGRESS" || t.status === "IN_REVIEW"))}
+                pendingTasks={ref(day.notCompleted.filter((t) => t.status !== "IN_PROGRESS" && t.status !== "IN_REVIEW"))}
                 blocked={ref(day.blocked)}
               />
             </Section>

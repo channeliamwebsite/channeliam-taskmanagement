@@ -7,7 +7,7 @@ import { formatDateTime, priorityTarget, todayISO, type Priority, type TaskStatu
 import { isCarriedForward as isCarriedForwardPure, taskFlags as taskFlagsPure } from "@/lib/scheduling";
 import { createClient } from "@/lib/supabase/server";
 import { canManageTaskAs } from "@/lib/task-permissions";
-import { PAGE_SIZE as PAGE_LIMIT, assigneeFilters, chunk, fetchAllPages, sortTaskRows, type TaskSort } from "@/lib/task-query";
+import { PAGE_SIZE as PAGE_LIMIT, assigneeFilters, chunk, fetchAllPages, sortTaskRows, taskOrder, type TaskSort } from "@/lib/task-query";
 import { loadError } from "./errors";
 
 export type AssigneeSummary = {
@@ -165,6 +165,42 @@ export type TaskFilters = {
   completedAfter?: string;
 };
 
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+/** The filtered (RLS-scoped) tasks query shared by listTasks and listTasksPage; no ordering or paging. */
+function filteredTasks(supabase: Supabase, filters: TaskFilters, options?: { count: "exact" }) {
+  // Assignee filters run in the database as inner joins on task_assignees
+  // (still subject to its RLS), instead of shipping task-id lists in the URL.
+  const assignee = assigneeFilters(filters);
+  const select = [TASK_SUMMARY_SELECT, ...assignee.embeds].join(",");
+  let query = supabase.from("tasks").select(select, options).eq("workspace_id", filters.workspaceId);
+  for (const c of assignee.conditions) {
+    query = c.op === "eq" ? query.eq(c.column, c.value as string) : query.in(c.column, c.value as string[]);
+  }
+  if (filters.projectId) query = query.eq("project_id", filters.projectId);
+  if (filters.projectIds) query = query.in("project_id", filters.projectIds);
+  if (filters.createdBy) query = query.eq("created_by", filters.createdBy);
+  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.priority) query = query.eq("priority", filters.priority);
+  if (filters.openOnly) query = query.not("status", "in", "(COMPLETED,CANCELLED)");
+  if (filters.completedAfter) query = query.gte("completed_at", filters.completedAfter);
+  if (filters.dateRange) {
+    const { from, to } = filters.dateRange;
+    query = query.or(
+      `and(scheduled_date.gte.${from},scheduled_date.lte.${to}),and(due_date.gte.${from},due_date.lte.${to})`,
+    );
+  }
+  if (filters.startFrom) query = query.gte("start_date", filters.startFrom);
+  if (filters.startTo) query = query.lte("start_date", filters.startTo);
+  if (filters.dueFrom) query = query.gte("due_date", filters.dueFrom);
+  if (filters.dueTo) query = query.lte("due_date", filters.dueTo);
+  if (filters.search?.trim()) {
+    const term = filters.search.trim().slice(0, 100).replace(/[\\%_]/g, (ch) => `\\${ch}`);
+    query = query.ilike("title", `%${term}%`);
+  }
+  return query;
+}
+
 /**
  * Tasks visible to the caller (RLS-scoped), newest activity first unless
  * `sort` says otherwise. Every matching row is returned: pages are walked by
@@ -174,37 +210,8 @@ export async function listTasks(filters: TaskFilters): Promise<TaskSummary[]> {
   if (filters.assigneeIds?.length === 0 || filters.projectIds?.length === 0) return [];
   const supabase = await createClient();
 
-  // Assignee filters run in the database as inner joins on task_assignees
-  // (still subject to its RLS), instead of shipping task-id lists in the URL.
-  const assignee = assigneeFilters(filters);
-  const select = [TASK_SUMMARY_SELECT, ...assignee.embeds].join(",");
-
   const rows = await fetchAllPages<TaskSummaryRow>((after) => {
-    let query = supabase.from("tasks").select(select).eq("workspace_id", filters.workspaceId);
-    for (const c of assignee.conditions) {
-      query = c.op === "eq" ? query.eq(c.column, c.value as string) : query.in(c.column, c.value as string[]);
-    }
-    if (filters.projectId) query = query.eq("project_id", filters.projectId);
-    if (filters.projectIds) query = query.in("project_id", filters.projectIds);
-    if (filters.createdBy) query = query.eq("created_by", filters.createdBy);
-    if (filters.status) query = query.eq("status", filters.status);
-    if (filters.priority) query = query.eq("priority", filters.priority);
-    if (filters.openOnly) query = query.not("status", "in", "(COMPLETED,CANCELLED)");
-    if (filters.completedAfter) query = query.gte("completed_at", filters.completedAfter);
-    if (filters.dateRange) {
-      const { from, to } = filters.dateRange;
-      query = query.or(
-        `and(scheduled_date.gte.${from},scheduled_date.lte.${to}),and(due_date.gte.${from},due_date.lte.${to})`,
-      );
-    }
-    if (filters.startFrom) query = query.gte("start_date", filters.startFrom);
-    if (filters.startTo) query = query.lte("start_date", filters.startTo);
-    if (filters.dueFrom) query = query.gte("due_date", filters.dueFrom);
-    if (filters.dueTo) query = query.lte("due_date", filters.dueTo);
-    if (filters.search?.trim()) {
-      const term = filters.search.trim().slice(0, 100).replace(/[\\%_]/g, (ch) => `\\${ch}`);
-      query = query.ilike("title", `%${term}%`);
-    }
+    let query = filteredTasks(supabase, filters);
     if (after) query = query.gt("id", after);
     return query.order("id").limit(PAGE_LIMIT) as unknown as PromiseLike<{ data: TaskSummaryRow[] | null; error: unknown }>;
   }, "Failed to load tasks");
@@ -212,6 +219,42 @@ export async function listTasks(filters: TaskFilters): Promise<TaskSummary[]> {
   const sorted = sortTaskRows(rows, filters.sort);
   const counts = await subtaskCounts(sorted.map((r) => r.id));
   return sorted.map((r) => toSummary(r, counts));
+}
+
+/** Rows per page on the task list (/tasks). */
+export const TASKS_PER_PAGE = 50;
+
+/**
+ * One page of listTasks, ordered and cut in the database (same ordering as
+ * sortTaskRows), with the total number of matching tasks.
+ */
+export async function listTasksPage(
+  filters: TaskFilters,
+  page: number,
+): Promise<{ tasks: TaskSummary[]; total: number; page: number; pageCount: number }> {
+  if (filters.assigneeIds?.length === 0 || filters.projectIds?.length === 0) return { tasks: [], total: 0, page: 1, pageCount: 1 };
+  const supabase = await createClient();
+  const current = Number.isInteger(page) && page > 0 ? page : 1;
+
+  let query = filteredTasks(supabase, filters, { count: "exact" });
+  for (const o of taskOrder(filters.sort)) query = query.order(o.column, o.options);
+  const from = (current - 1) * TASKS_PER_PAGE;
+  const { data, error, count } = await query.range(from, from + TASKS_PER_PAGE - 1);
+  if (error) {
+    // A page past the end answers 416 (PGRST103); show the last page's state instead of failing.
+    if ((error as { code?: string }).code === "PGRST103") return { tasks: [], total: 0, page: current, pageCount: current };
+    console.error("[data] Failed to load tasks:", error.code ?? "no-code", error.message);
+    throw new Error("Failed to load tasks");
+  }
+  const rows = (data ?? []) as unknown as TaskSummaryRow[];
+  const counts = await subtaskCounts(rows.map((r) => r.id));
+  const total = count ?? rows.length;
+  return {
+    tasks: rows.map((r) => toSummary(r, counts)),
+    total,
+    page: current,
+    pageCount: Math.max(1, Math.ceil(total / TASKS_PER_PAGE)),
+  };
 }
 
 /** Titles of specific tasks the caller can see (missing or hidden ids are omitted). */

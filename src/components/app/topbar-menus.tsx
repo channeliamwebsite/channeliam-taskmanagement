@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { signOut } from "@/lib/auth/actions";
 import { markAllNotificationsRead, markNotificationRead } from "@/lib/actions/notifications";
 import { formatDateTime } from "@/lib/domain";
+import { notificationHref } from "@/lib/notification-links";
 import { cn } from "@/lib/utils";
 
 export function SearchBox() {
@@ -55,6 +56,7 @@ export type NotificationItem = {
   isRead: boolean;
   createdAt: string;
   taskId: string | null;
+  type?: string;
 };
 
 export function NotificationsMenu({ items, unread }: { items: NotificationItem[]; unread: number }) {
@@ -104,7 +106,7 @@ export function NotificationsMenu({ items, unread }: { items: NotificationItem[]
                 onClick={() =>
                   startTransition(async () => {
                     if (!n.isRead) await markNotificationRead(n.id);
-                    router.push(n.taskId ? `/tasks/${n.taskId}` : "/my-day");
+                    router.push(notificationHref(n));
                   })
                 }
               >

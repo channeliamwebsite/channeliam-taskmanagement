@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$BackupDirectory = "C:\Users\Hima Girish\TaskManagement-Backups\migrations-024-036-2026-11-03"
+    [string]$BackupDirectory = "C:\Users\Hima Girish\TaskManagement-Backups\migrations-024-039-2026-11-04"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +20,10 @@ $ExpectedFiles = @(
     "033_attendance_breaks_and_policy.sql",
     "034_hr_leave_and_holidays.sql",
     "035_hr_employee_profiles.sql",
-    "036_hr_monthly_cl_credits.sql"
+    "036_hr_monthly_cl_credits.sql",
+    "037_progress_counts_and_job_health.sql",
+    "038_client_reports.sql",
+    "039_daily_workflow_notifications.sql"
 )
 
 if (-not (Test-Path $BackupDirectory)) {
@@ -102,5 +105,5 @@ if ($ManifestFailures.Count -gt 0 -or $RepositoryFailures.Count -gt 0) {
 }
 
 Write-Host ""
-Write-Host "SUCCESS: All 13 migrations passed archive verification." -ForegroundColor Green
+Write-Host "SUCCESS: All $($Results.Count) migrations passed archive verification." -ForegroundColor Green
 Write-Host "This script performed read-only file checks. No database was accessed."

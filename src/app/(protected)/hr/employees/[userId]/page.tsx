@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PageHeader, Section } from "@/components/app/page-header";
-import { HrProfileForm, IdentityForm, PhotoUpload } from "@/components/hr/profile-forms";
+import { HrProfileForm, IdentityForm } from "@/components/hr/profile-forms";
 import { ProfileView } from "@/components/hr/profile-view";
 import { DayTable, LeaveHistoryTable, TotalsGrid } from "@/components/hr/report-views";
 import { ROUTE_ROLES } from "@/lib/auth/roles";
@@ -13,6 +13,8 @@ import { buildMonthReport, parseReportMonth } from "@/lib/data/hr-month";
 import { getHrProfile } from "@/lib/data/hr-people";
 import { getClCredits, listLeaveForUser } from "@/lib/data/hr";
 import { ClCreditsTable } from "@/components/hr/cl-credits";
+import { AccountPanel, EmploymentForm } from "@/components/team/member-controls";
+import { getEmployeeAdmin } from "@/lib/data/employee-admin";
 
 import { getPageContext } from "../../../_components/context";
 
@@ -21,20 +23,22 @@ export const metadata: Metadata = { title: "Employee profile" };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function EmployeeDetailPage({ params, searchParams }: PageProps<"/hr/employees/[userId]">) {
-  await getPageContext(ROUTE_ROLES["/hr"]);
+  const { session } = await getPageContext(ROUTE_ROLES["/hr"]);
   const { userId } = await params;
   if (!UUID.test(userId)) notFound();
   const sp = await searchParams;
   const month = parseReportMonth(sp.month);
   const year = Number(month.slice(0, 4));
 
-  const [profile, report, leave, credits] = await Promise.all([
+  const [profile, report, leave, credits, admin] = await Promise.all([
     getHrProfile(userId),
     buildMonthReport(month, { userId }),
     listLeaveForUser(userId, `${year}-01-01`, `${year}-12-31`),
     getClCredits(userId),
+    getEmployeeAdmin(userId),
   ]);
-  if (!profile) notFound();
+  if (!profile || !admin) notFound();
+  const isSelf = userId === session.user.id;
   const mine = report.reports[0];
   const link = (m: string) => `/hr/employees/${userId}?month=${m}`;
 
@@ -54,7 +58,10 @@ export default async function EmployeeDetailPage({ params, searchParams }: PageP
           <ProfileView profile={profile} />
         </Section>
         <div className="grid content-start gap-4">
-          <Section title="Edit HR details">
+          <Section title="Employment">
+            <EmploymentForm member={admin.member} isSelf={isSelf} managers={admin.managers} departments={admin.departments} />
+          </Section>
+          <Section title="HR details">
             <HrProfileForm
               userId={userId}
               initial={{
@@ -68,15 +75,12 @@ export default async function EmployeeDetailPage({ params, searchParams }: PageP
                 employmentType: profile.employee.employmentType ?? "FULL_TIME",
               }}
             />
-            <p className="mt-3 text-xs text-muted-foreground">
-              Name, department, designation and reporting manager are edited on the <Link href="/team" className="underline">Employees</Link> page.
-            </p>
           </Section>
           <Section title="Identity">
             <IdentityForm userId={userId} panLast4={profile.panLast4} aadhaarLast4={profile.aadhaarLast4} />
           </Section>
-          <Section title="Photo">
-            <PhotoUpload userId={userId} />
+          <Section title="Account">
+            <AccountPanel workspaceId={admin.memberWorkspaceId} member={admin.member} isSelf={isSelf} workspaces={admin.workspaces} />
           </Section>
         </div>
       </div>

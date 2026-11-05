@@ -10,7 +10,8 @@ import { TaskList } from "@/components/tasks/task-list";
 import { listClientOptions } from "@/lib/data/clients";
 import { listMyCollaborationProjectIds } from "@/lib/data/collaborators";
 import { listProjectOptions } from "@/lib/data/projects";
-import { listTasks, toTaskRows, type TaskSummary } from "@/lib/data/tasks";
+import { TaskPager } from "@/components/tasks/task-pager";
+import { listTasks, listTasksPage, toTaskRows, type TaskSummary } from "@/lib/data/tasks";
 import { createClient } from "@/lib/supabase/server";
 import { getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, isPriority, isTaskStatus } from "@/lib/domain";
@@ -41,7 +42,9 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     return v && ISO_DATE.test(v) ? v : undefined;
   };
   const sort = SORTS.find((s) => s === get("sort"));
-  const view = get("view") === "board" ? "board" : "list";
+  // Super admins have no task board (oversight happens on the dashboard): a
+  // direct ?view=board link shows the list instead.
+  const view = get("view") === "board" && session.profile.role !== "SUPER_ADMIN" ? "board" : "list";
   const userId = session.user.id;
   const today = workspaceToday(workspace);
 
@@ -65,13 +68,17 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         .map((m) => m.userId)
     : undefined;
 
-  const tasks = await listTasks({
+  // Open tasks by default; "Any status" (status=all) or a chosen status searches history.
+  const statusFilter = isTaskStatus(status) ? status : undefined;
+  const page = Number(get("page") ?? "1");
+  const { tasks, total, page: currentPage, pageCount } = await listTasksPage({
     workspaceId: workspace.id,
     projectId: project && UUID.test(project) ? project : undefined,
     projectIds: clientProjectIds,
     assigneeId: assignee && UUID.test(assignee) ? assignee : scope === "mine" ? userId : undefined,
     createdBy: scope === "created" ? userId : undefined,
-    status: isTaskStatus(status) ? status : undefined,
+    status: statusFilter,
+    openOnly: !statusFilter && status !== "all",
     priority: isPriority(priority) ? priority : undefined,
     search: get("q"),
     assigneeIds: departmentIds,
@@ -80,7 +87,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     dueFrom: date("dueFrom"),
     dueTo: date("dueTo"),
     sort,
-  });
+  }, page);
 
   const rows = toTaskRows(tasks, session, today);
   const canAssign = session.permissions.assignTasks;
@@ -104,7 +111,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     <>
       <PageHeader
         title={title}
-        description={`${rows.length} task${rows.length === 1 ? "" : "s"} in ${workspace.name}`}
+        description={`${total} task${total === 1 ? "" : "s"} in ${workspace.name}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {allWorkspaces.length ? <TargetWorkspacePicker workspaces={allWorkspaces} activeId={workspace.id} /> : null}
@@ -118,7 +125,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
           </div>
         }
       />
-      <TaskFilters projects={projects} members={memberOptions} clients={clients} />
+      <TaskFilters projects={projects} members={memberOptions} clients={clients} openByDefault showBoard={session.profile.role !== "SUPER_ADMIN"} />
       {rows.length === 0 ? (
         <EmptyState
           icon={CheckSquare}
@@ -136,6 +143,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
       ) : (
         <TaskList tasks={rows} today={today} />
       )}
+      <TaskPager page={currentPage} pageCount={pageCount} total={total} />
       {external.length ? (
         <Section title={`From other workspaces (${external.length})`} className="mt-6">
           <p className="mb-2 text-xs text-muted-foreground">Tasks assigned to you in projects you were given access to.</p>

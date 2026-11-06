@@ -17,7 +17,6 @@ import {
   Inbox,
   KanbanSquare,
   LayoutDashboard,
-  ListChecks,
   Menu,
   UserCheck,
   Settings,
@@ -29,9 +28,9 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 
+import { BrandFooterCard, BrandLockup } from "@/components/app/brand";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ORG_NAME, PRODUCT_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 const ICONS = {
@@ -82,10 +81,10 @@ function useIsActive(sections: NavSection[]) {
 function NavLinks({ sections, onNavigate }: { sections: NavSection[]; onNavigate?: () => void }) {
   const isActive = useIsActive(sections);
   return (
-    <nav className="grid gap-4" aria-label="Main">
-      {sections.map((section) => (
-        <div key={section.title} className="grid gap-0.5">
-          <p className="px-2.5 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{section.title}</p>
+    <nav className="grid gap-1" aria-label="Main">
+      {sections.map((section, index) => (
+        <div key={section.title} className={cn("grid gap-0.5", index > 0 && "mt-2 border-t border-sidebar-border pt-4")}>
+          <p className="px-3 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{section.title}</p>
           {section.items.map((item) => {
             const Icon = ICONS[item.icon];
             const active = isActive(item);
@@ -96,14 +95,19 @@ function NavLinks({ sections, onNavigate }: { sections: NavSection[]; onNavigate
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
-                  active ? "bg-primary/[0.07] text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  "group/nav flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
-                <Icon className={cn("size-4", active && "text-primary")} aria-hidden="true" />
-                <span className="flex-1">{item.label}</span>
+                <Icon
+                  className={cn("size-[18px] shrink-0", active ? "text-primary" : "text-muted-foreground group-hover/nav:text-foreground")}
+                  aria-hidden="true"
+                />
+                <span className="flex-1 truncate">{item.label}</span>
                 {item.badge ? (
-                  <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-semibold text-white tabular-nums">
+                  <span className="min-w-5 rounded-full bg-brand-soft px-1.5 py-0.5 text-center text-[11px] leading-none font-semibold text-brand-soft-foreground tabular-nums">
                     {item.badge > 99 ? "99+" : item.badge}
                   </span>
                 ) : null}
@@ -116,45 +120,47 @@ function NavLinks({ sections, onNavigate }: { sections: NavSection[]; onNavigate
   );
 }
 
-function Brand() {
+function Brand({ roleLabel, homeHref = "/my-day" }: { roleLabel?: string; homeHref?: string }) {
   return (
-    <Link href="/my-day" className="flex items-center gap-2 px-1 font-semibold tracking-tight">
-      <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-        <ListChecks className="size-4" aria-hidden="true" />
-      </span>
-      <span className="grid leading-tight">
-        <span>{ORG_NAME}</span>
-        <span className="text-[11px] font-normal text-muted-foreground">{PRODUCT_NAME}</span>
-      </span>
+    <Link href={homeHref} className="rounded-lg px-1 outline-none focus-visible:ring-3 focus-visible:ring-ring/40" aria-label="Home">
+      <BrandLockup role={roleLabel} />
     </Link>
   );
 }
 
-export function Sidebar({ sections, workspaceSwitcher }: { sections: NavSection[]; workspaceSwitcher: ReactNode }) {
+type ShellNavProps = { sections: NavSection[]; workspaceSwitcher: ReactNode; roleLabel?: string; homeHref?: string };
+
+export function Sidebar({ sections, workspaceSwitcher, roleLabel, homeHref }: ShellNavProps) {
   return (
-    <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r bg-muted/30 px-3 py-4 lg:flex">
-      <Brand />
+    <aside className="sticky top-0 hidden h-svh w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r border-sidebar-border bg-sidebar px-4 py-5 lg:flex">
+      <Brand roleLabel={roleLabel} homeHref={homeHref} />
       {workspaceSwitcher}
       <NavLinks sections={sections} />
+      <div className="mt-auto pt-2">
+        <BrandFooterCard />
+      </div>
     </aside>
   );
 }
 
-export function MobileNav({ sections, workspaceSwitcher }: { sections: NavSection[]; workspaceSwitcher: ReactNode }) {
+export function MobileNav({ sections, workspaceSwitcher, roleLabel, homeHref }: ShellNavProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="Open navigation">
+      <Button variant="outline" size="icon" className="shrink-0 lg:hidden" onClick={() => setOpen(true)} aria-label="Open navigation">
         <Menu />
       </Button>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-72 gap-4 overflow-y-auto p-4">
+        <SheetContent side="left" className="w-[18rem] max-w-[85vw] gap-5 overflow-y-auto bg-sidebar px-4 py-5">
           <SheetHeader className="p-0">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
-            <Brand />
+            <Brand roleLabel={roleLabel} homeHref={homeHref} />
           </SheetHeader>
           {workspaceSwitcher}
           <NavLinks sections={sections} onNavigate={() => setOpen(false)} />
+          <div className="mt-auto pt-2">
+            <BrandFooterCard />
+          </div>
         </SheetContent>
       </Sheet>
     </>

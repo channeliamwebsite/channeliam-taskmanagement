@@ -1,11 +1,12 @@
-import { Briefcase } from "lucide-react";
+import { Briefcase, FolderOpen } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
 import { ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
-import { EmptyState, PageHeader } from "@/components/app/page-header";
+import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { TargetWorkspacePicker } from "@/components/app/target-workspace-picker";
 import { ClientFormButton } from "@/components/clients/client-form-button";
+import { ClientTable, type ClientRow } from "@/components/clients/client-table";
 import { listClients } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
 import { getMyWorkspaces, getWorkspaceMembers } from "@/lib/data/workspace";
@@ -34,11 +35,28 @@ export default async function ClientsPage() {
   const showContacts = canEdit;
   const unassigned = projects.filter((p) => !p.clientId);
 
+  const rows: ClientRow[] = clients.map((c) => {
+    const list = projects.filter((p) => p.clientId === c.id);
+    const progress = combineProgress(list.map((p) => ({ total: p.totalTasks, completed: p.completedTasks })));
+    return {
+      id: c.id,
+      name: c.name,
+      contactName: c.contactName,
+      contactEmail: c.contactEmail,
+      notes: c.notes,
+      isActive: c.isActive,
+      projects: list.length,
+      totalTasks: progress.total,
+      completedTasks: progress.completed,
+      progress: progress.progress,
+    };
+  });
+
   return (
     <>
       <PageHeader
         title="Clients"
-        description={`${clients.length} client${clients.length === 1 ? "" : "s"} · Client → Project → Task`}
+        description={`${clients.length} client${clients.length === 1 ? "" : "s"} in ${workspace.name} · Client → Project → Task`}
         actions={
           canAdd ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -51,70 +69,41 @@ export default async function ClientsPage() {
       {clients.length === 0 && projects.length === 0 ? (
         <EmptyState icon={Briefcase} title="No clients yet" description={canAdd ? "Add a client, then create projects for it." : "Clients will appear here."} />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {[...clients.map((c) => ({ client: c, list: projects.filter((p) => p.clientId === c.id) })),
-            ...(unassigned.length ? [{ client: null, list: unassigned }] : [])].map(({ client, list }) => (
-            <section key={client?.id ?? "none"} className="rounded-xl border bg-card">
-              <header className="flex items-start justify-between gap-2 border-b px-4 py-3">
-                <div className="min-w-0">
-                  <h2 className="truncate font-medium">{client ? <Link href={`/clients/${client.id}`} className="hover:underline">{client.name}</Link> : "Internal / no client"}</h2>
-                  {client && showContacts && (client.contactName || client.contactEmail) ? (
-                    <p className="truncate text-xs text-muted-foreground">
-                      {[client.contactName, client.contactEmail].filter(Boolean).join(" · ")}
-                    </p>
-                  ) : null}
-                  {list.length ? <ClientProgress projects={list} /> : null}
-                </div>
-                {client && canEdit ? (
-                  <ClientFormButton
-                    workspaceId={workspace.id}
-                    clientId={client.id}
-                    initial={{
-                      name: client.name,
-                      contactName: client.contactName ?? "",
-                      contactEmail: client.contactEmail ?? "",
-                      notes: client.notes ?? "",
-                    }}
-                  />
-                ) : null}
-              </header>
-              {list.length ? (
-                <ul className="divide-y">
-                  {list.map((p) => (
-                    <li key={p.id}>
-                      <Link href={`/projects/${p.id}`} className="grid gap-1.5 px-4 py-2.5 hover:bg-muted/40">
-                        <span className="flex items-center justify-between gap-2 text-sm">
-                          <span className="truncate font-medium">{p.name}</span>
-                          <ProjectStatusBadge status={p.status} />
+        <div className="grid gap-6">
+          {clients.length ? (
+            <ClientTable
+              rows={rows}
+              workspaceId={workspace.id}
+              canEdit={canEdit}
+              showContacts={showContacts}
+              showReports={session.permissions.viewTeamReports}
+            />
+          ) : null}
+
+          {unassigned.length ? (
+            <Section title={`Unassigned projects (${unassigned.length})`} icon={FolderOpen} description="Internal work and projects without a client">
+              <ul className="-my-2 divide-y divide-border/70">
+                {unassigned.map((p) => (
+                  <li key={p.id}>
+                    <Link href={`/projects/${p.id}`} className="grid gap-1.5 py-2.5 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4">
+                      <span className="flex min-w-0 items-center gap-2 text-sm">
+                        <span className="truncate font-medium hover:underline">{p.name}</span>
+                        <ProjectStatusBadge status={p.status} />
+                      </span>
+                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ProgressBar value={p.progress} className="w-28 sm:w-36" />
+                        <span className="shrink-0 tabular-nums">
+                          {p.completedTasks}/{p.totalTasks}
                         </span>
-                        <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <ProgressBar value={p.progress} />
-                          <span className="shrink-0 tabular-nums">{p.completedTasks}/{p.totalTasks}</span>
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="px-4 py-3 text-sm text-muted-foreground">No projects you can access.</p>
-              )}
-            </section>
-          ))}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
         </div>
       )}
     </>
-  );
-}
-
-/** Combined progress of a client's projects (leaf tasks across all of them). */
-function ClientProgress({ projects }: { projects: { totalTasks: number; completedTasks: number }[] }) {
-  const c = combineProgress(projects.map((p) => ({ total: p.totalTasks, completed: p.completedTasks })));
-  return (
-    <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-      <ProgressBar value={c.progress} className="w-28" />
-      <span className="tabular-nums">
-        {c.completed}/{c.total} tasks · {c.progress}%
-      </span>
-    </div>
   );
 }

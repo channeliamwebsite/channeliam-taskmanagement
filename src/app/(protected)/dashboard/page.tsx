@@ -1,11 +1,13 @@
 import {
   AlertTriangle,
+  BarChart3,
   CalendarDays,
+  CalendarOff,
   CheckCircle2,
   CheckSquare,
   CircleDot,
   ClipboardCheck,
-  Clock,
+  FolderKanban,
   ListTodo,
   Sun,
   Users,
@@ -14,51 +16,45 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
 
-import { PriorityBadge, ProgressBar, StatusBadge } from "@/components/app/badges";
-import { MeetingLinksCard } from "@/components/app/meeting-links-card";
-import { PageHeader, Section } from "@/components/app/page-header";
-import { CompanyOverviewTable } from "@/components/dashboard/company-overview";
-import { EmployeePerformanceTable } from "@/components/dashboard/employee-performance";
-import { ProjectProgressTable } from "@/components/dashboard/project-progress-table";
+import { PriorityBadge, ProgressBar, ProjectStatusBadge, StatusBadge } from "@/components/app/badges";
+import { PageHeader, Section, sectionLinkClass } from "@/components/app/page-header";
+import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import {
   CompactTaskList,
   ProjectProgressList,
   StatCard,
 } from "@/components/dashboard/widgets";
-import { MeetingRecordButton } from "@/components/meetings/meeting-record-button";
 import { ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { ApproveTaskButton } from "@/components/tasks/approve-task-button";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
-import { DailyTrackingPanel } from "@/components/team/daily-tracking-panel";
 import { TeamTodayPanel } from "@/components/team/team-today-panel";
 import { buttonVariants } from "@/components/ui/button";
 import type { Session } from "@/lib/auth/dal";
 import { ROLE_LABELS } from "@/lib/auth/roles";
 import { listClients } from "@/lib/data/clients";
-import { getCompanyOverview } from "@/lib/data/company-overview";
 import { loadDailyTracking } from "@/lib/data/daily-tracking-data";
 import { summarizeTracking } from "@/lib/daily-tracking";
 import { loadError } from "@/lib/data/errors";
-import { listMeetingRecords } from "@/lib/data/meeting-records";
-import { listMeetingLinks, meetingsForPerson, type MeetingLink } from "@/lib/data/meetings";
 import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
 import { canCreateProjects, getMyWorkspaces, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
 import { BUSINESS_TIMEZONE, PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue, todayISO } from "@/lib/domain";
 import { buildRangeReport } from "@/lib/data/hr-month";
+import { listLeaveForReview } from "@/lib/data/hr";
 import { dashboardCounts, type DashboardCounts } from "@/lib/hr/report";
-import { isLeafTask } from "@/lib/progress";
 import { isCompletedOn, isInTodaysWorkload } from "@/lib/scheduling";
 import {
   departmentProgress,
+  inDateRange,
   employeeCounts,
   employeePerformance,
-  formatClock,
-  meetingOccurrences,
   projectProgress,
   statusCounts,
-  todaysWork,
   type DateRange,
 } from "@/lib/super-admin-overview";
 import { createClient } from "@/lib/supabase/server";
@@ -93,20 +89,16 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const isAdmin = session.profile.role === "ADMIN";
   const isIndividual = session.profile.role === "INDIVIDUAL";
-  const today = workspaceToday(workspace);
-  const [tasks, projects, members, team, meetings, projectOptions, myReport, tracking, meetingRecords, canCreate, clients] = await Promise.all([
+  const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients] = await Promise.all([
     listTasks({ workspaceId: workspace.id }),
     listProjects(workspace.id),
     getWorkspaceMembers(workspace.id),
     isAdmin ? loadTeamToday(session, workspace) : Promise.resolve(null),
-    listMeetingLinks(workspace.id, { activeOnly: true }),
     // Options for the existing New task dialog (admins only).
     isAdmin ? listProjectOptions(workspace.id) : Promise.resolve([]),
     isIndividual ? myReportToday(workspace.id, session.user.id, workspaceToday(workspace)) : Promise.resolve(null),
     // Automatic morning report vs. live tasks (migration 011), super admins only.
     isSuperAdmin ? loadDailyTracking(workspace.id, workspaceToday(workspace)) : Promise.resolve({ rows: [], reports: [] }),
-    // Meeting notes for this week (migration 013), super admins only.
-    isSuperAdmin ? listMeetingRecords(workspace.id, today, addDays(today, 6)) : Promise.resolve({ available: false, records: [] }),
     // Add project on the admin dashboard: same rule as the Projects page; createProject and RLS enforce it again.
     isAdmin ? canCreateProjects(workspace.id, session.user.id, session.profile.role) : Promise.resolve(false),
     // RLS-scoped to the active workspace, so the picker lists only clients the admin can attach a project to.
@@ -115,12 +107,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
 
   const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
   const props = { session, workspace, tasks, projects, members, today: workspaceToday(workspace) };
-  const meetingCard = (
-    <MeetingLinksCard
-      links={meetingsForPerson(meetings, session.profile.team, workspaceToday(workspace), session.user.id)}
-      canManage={session.profile.role === "SUPER_ADMIN"}
-    />
-  );
 
   if (isSuperAdmin) {
     // Company-wide figures (super admins read every workspace, 025).
@@ -128,9 +114,11 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
     const range = parseRange(params.from, params.to);
     // Today's attendance from the same source and rules as /hr (company-wide, India time).
     const attendanceDay = todayISO(new Date(), BUSINESS_TIMEZONE);
-    const [overview, attendanceReport] = await Promise.all([
-      getCompanyOverview(await getMyWorkspaces()),
+    const workspaces = await getMyWorkspaces();
+    const [attendanceReport, pendingLeave] = await Promise.all([
       buildRangeReport(attendanceDay, attendanceDay),
+      // Same query as HR → Leave Applications (pending, this year).
+      listLeaveForReview("PENDING", Number(attendanceDay.slice(0, 4))),
     ]);
     const attendance = dashboardCounts(attendanceReport.reports.filter((r) => r.employee.isActive).map((r) => r.days[0]));
     return (
@@ -138,11 +126,10 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
         {...props}
         range={range}
         attendance={attendance}
-        overview={overview}
         name={name}
         tracking={tracking}
-        meetings={meetings}
-        meetingRecords={meetingRecords}
+        workspaces={workspaces}
+        pendingLeave={pendingLeave}
       />
     );
   }
@@ -154,7 +141,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
         name={name}
         team={team}
         projectOptions={projectOptions}
-        meetingCard={meetingCard}
         clientOptions={clients.map((c) => ({ id: c.id, name: c.name }))}
         clients={canCreate ? clients.map((c) => ({ id: c.id, name: c.name })) : null}
       />
@@ -188,7 +174,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
           </div>
         }
       />
-      <div className="mb-6">{meetingCard}</div>
       {team ? (
         <Section title={`Today — employee progress (${team.rows.length})`} className="mb-6">
           <TeamTodayPanel rows={team.rows} tasksByUser={team.tasksByUser} totals={team.totals} today={team.today} />
@@ -211,359 +196,473 @@ type Props = {
 type SuperAdminProps = Props & {
   range: DateRange | null;
   attendance: DashboardCounts;
-  overview: Awaited<ReturnType<typeof getCompanyOverview>>;
   name: string;
   tracking: Awaited<ReturnType<typeof loadDailyTracking>>;
-  meetings: MeetingLink[];
-  meetingRecords: Awaited<ReturnType<typeof listMeetingRecords>>;
+  workspaces: Awaited<ReturnType<typeof getMyWorkspaces>>;
+  pendingLeave: Awaited<ReturnType<typeof listLeaveForReview>>;
 };
 
-const MEETING_STATUS = {
-  SCHEDULED: { label: "Scheduled", tone: "bg-blue-50 text-blue-700" },
-  HELD: { label: "Held", tone: "bg-emerald-50 text-emerald-700" },
-  CANCELLED: { label: "Cancelled", tone: "bg-zinc-100 text-zinc-600" },
-  NOT_RECORDED: { label: "Not recorded", tone: "bg-amber-50 text-amber-800" },
-} as const;
-const MEETING_KIND = { MORNING: "Morning", EVENING: "Evening", OTHER: "Meeting" } as const;
 
 /**
- * Super admin: company-wide operations overview. Employees and tasks first,
- * then client/project progress, today's reports and blockers, and meetings.
- * Super admins review reports; they do not submit them.
+ * Super admin: monitoring-only company dashboard (layout of the approved
+ * reference, 2026-11-06). Every figure comes from the existing calculations in
+ * lib/super-admin-overview and the existing report / attendance / leave data.
+ * No task-creation actions and no meetings here (meetings: Team Today).
  */
-function SuperAdminDashboard({ session, workspace, tasks, projects, members, today, name, tracking, meetings, meetingRecords, overview, range, attendance }: SuperAdminProps) {
-  // Admins and Individuals who are active, plus anyone (e.g. deactivated today)
-  // who still has rows in today's report. Super admins review; they do not report.
-  const reported = new Set(tracking.rows.map((r) => r.userId));
+function SuperAdminDashboard({ workspace, tasks, projects, members, today, name, tracking, range, attendance, workspaces, pendingLeave }: SuperAdminProps) {
+  // Admins and Individuals who are active (super admins review; they do not report).
   const employees = members
-    .filter((m) => m.role !== "SUPER_ADMIN" && (m.isActive || reported.has(m.userId)))
-    .map((m) => ({
-      userId: m.userId,
-      name: displayName({ full_name: m.fullName, email: m.email }),
-      team: m.team,
-      roleLabel: ROLE_LABELS[m.role],
-      isActive: m.isActive,
-    }))
-    .sort((a, b) => (a.team ?? "~").localeCompare(b.team ?? "~") || a.name.localeCompare(b.name));
-  const summaries = summarizeTracking(employees.map((e) => e.userId), tracking.rows, tracking.reports);
-  const nameOf = new Map(employees.map((e) => [e.userId, e.name]));
-
-  // Company figures: each piece of work counted once (parents through their subtasks, cancelled excluded).
-  const counts = statusCounts(tasks, today);
-  const todays = todaysWork(tasks, today, workspace.timezone);
-  const people = employeeCounts(members);
-  const expected = employees.filter((e) => e.isActive);
+    .filter((m) => m.role !== "SUPER_ADMIN" && m.isActive)
+    .map((m) => ({ userId: m.userId, name: displayName({ full_name: m.fullName, email: m.email }), team: m.team?.trim() || null }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const summaries = new Map(summarizeTracking(employees.map((e) => e.userId), tracking.rows, tracking.reports).map((s) => [s.userId, s]));
   const reportsBy = new Map(tracking.reports.map((r) => [r.userId, r]));
-  // A submitted morning plan, not the automatic 09:00 snapshot.
-  const noMorning = expected.filter((e) => !reportsBy.get(e.userId)?.morningSubmittedAt);
-  const noEvening = expected.filter((e) => !reportsBy.get(e.userId)?.eveningSubmittedAt);
-  const reportedBlockers = tracking.reports
-    .filter((r) => nameOf.has(r.userId) && r.eveningSubmittedAt && (r.blockers || r.workRemaining))
-    .map((r) => ({ userId: r.userId, name: nameOf.get(r.userId)!, blockers: r.blockers ?? null, workRemaining: r.workRemaining ?? null }));
+  const morningDone = employees.filter((e) => reportsBy.get(e.userId)?.morningSubmittedAt).length;
+  const eveningDone = employees.filter((e) => reportsBy.get(e.userId)?.eveningSubmittedAt).length;
 
-  const work = tasks.filter((t) => isLeafTask(t) && t.status !== "CANCELLED");
-  const overdue = work.filter((t) => isOverdue(t.dueDate, t.status, today)).sort(byDue);
-  const blocked = work.filter((t) => t.status === "BLOCKED").sort(byDue);
-  const projectRows = projectProgress(projects, tasks, today);
-  const performance = employeePerformance(tasks, members, today, range, workspace.timezone);
+  // Each piece of work counted once (parents through their subtasks, cancelled excluded).
+  const counts = statusCounts(tasks, today);
+  const people = employeeCounts(members);
+  const completionPercent = counts.total ? Math.round((counts.completed / counts.total) * 100) : 0;
+  const performance = employeePerformance(tasks, members, today, range, workspace.timezone).sort((a, b) => b.total - a.total);
   const departments = departmentProgress(tasks, members, range, workspace.timezone);
-  const departmentCount = departments.filter((d) => d.department !== "No department").length;
-
-  const week = Array.from({ length: 7 }, (_, i) => addDays(today, i));
-  const occurrences = meetingOccurrences(meetings, meetingRecords.records, week, today);
-  const recordOf = new Map(meetingRecords.records.map((r) => [`${r.meetingLinkId}:${r.meetingDate}`, r]));
-  const taskOptions = work
-    .filter((t) => isOpen(t))
-    .map((t) => ({ id: t.id, title: t.title }))
-    .sort((a, b) => a.title.localeCompare(b.title))
-    .slice(0, 300);
-  const taskTitle = new Map(tasks.map((t) => [t.id, t.title]));
-
-  const quickLink = buttonVariants({ variant: "outline", size: "sm", className: "h-8" });
-  const textLink = "text-xs text-muted-foreground hover:text-foreground hover:underline";
+  // Same date rule as the performance figures (due / scheduled / completed in the range).
+  const projectStatus = new Map(projects.map((p) => [p.id, p.status]));
+  const projectRows = projectProgress(projects, tasks.filter((t) => inDateRange(t, range, workspace.timezone)), today);
+  const rangeLabel = range ? `${formatDate(range.from)} – ${formatDate(range.to)}` : "All time";
+  const presets = [
+    { label: "Last 15 days", from: addDays(today, -14), to: today },
+    { label: "Last 30 days", from: addDays(today, -29), to: today },
+  ];
+  const head = "text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase";
 
   return (
     <>
       <PageHeader
-        title={`Welcome back, ${name}`}
-        description={`${ROLE_LABELS[session.profile.role]} · company overview, then ${workspace.name}`}
+        title={`${greeting(workspace.timezone)}, ${name}`}
+        description={`Here's what's happening across Channel I'm · ${formatDate(today)}`}
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/reports" className={quickLink}>
-              <ClipboardCheck aria-hidden="true" /> Daily reports
-            </Link>
-            <Link href="/team" className={quickLink}>
-              <Users aria-hidden="true" /> Employees
-            </Link>
-            <Link href="/calendar" className={quickLink}>
-              <CalendarDays aria-hidden="true" /> Calendar
-            </Link>
+          <div className="w-full sm:w-64">
+            <WorkspaceSwitcher workspaces={workspaces} activeId={workspace.id} />
           </div>
         }
       />
 
-      <Section title={`Company overview · ${overview.length} workspace${overview.length === 1 ? "" : "s"}`} className="mb-6">
-        <CompanyOverviewTable rows={overview} activeId={workspace.id} />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Live counts per workspace, each in its own timezone. Choose a workspace in the switcher to see its details below.
-        </p>
-      </Section>
-
-      {/* 1. Selected workspace: employees and tasks. Each figure opens the matching list. */}
-      <div className="mb-2 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <StatCard
-          label={`Active employees · ${people.admins} Admin · ${people.individuals} Individual · ${departmentCount} department${departmentCount === 1 ? "" : "s"}`}
-          value={people.admins + people.individuals}
-          icon={Users}
-          href="/team?active=active"
-        />
-        <StatCard label={`Today's tasks · ${todays.completedToday} done today`} value={todays.planned} icon={Sun} tone="info" href="/tasks?scope=all&sort=due" />
-        <StatCard label="In progress" value={counts.inProgress} icon={CircleDot} tone="info" href="/tasks?scope=all&status=IN_PROGRESS" />
-        <StatCard label="Pending (to do)" value={counts.pending} icon={ListTodo} href="/tasks?scope=all&status=TODO" />
-        <StatCard label="Blocked" value={counts.blocked} icon={AlertTriangle} tone={counts.blocked ? "danger" : "default"} href="/tasks?scope=all&status=BLOCKED" />
-        <StatCard label="Overdue" value={counts.overdue} icon={Clock} tone={counts.overdue ? "danger" : "default"} href="/tasks?scope=all&sort=due" />
-        <StatCard label={`Completed of ${counts.total}`} value={counts.completed} icon={CheckCircle2} tone="success" href="/tasks?scope=all&status=COMPLETED" />
-        <StatCard
-          label="Reports today · morning / evening"
-          value={`${expected.length - noMorning.length} / ${expected.length - noEvening.length} of ${expected.length}`}
-          icon={ClipboardCheck}
-          href="/reports"
-        />
+      {/* 1. Summary of the selected workspace; each card opens the matching list. */}
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <StatCard label="Total employees" value={people.admins + people.individuals} icon={Users} tone="brand" hint={`${people.admins} Admin · ${people.individuals} Individual`} href="/team?active=active" />
+        <StatCard label="Total tasks" value={counts.total} icon={ListTodo} tone="info" hint={workspace.name} href="/tasks?scope=all" />
+        <StatCard label="Completed" value={counts.completed} icon={CheckCircle2} tone="success" hint={`${completionPercent}% completion`} href="/tasks?scope=all&status=COMPLETED" />
+        <StatCard label="In progress" value={counts.inProgress} icon={CircleDot} tone="violet" hint={`${counts.pending} not started`} href="/tasks?scope=all&status=IN_PROGRESS" />
+        <StatCard label="Overdue" value={counts.overdue} icon={AlertTriangle} tone={counts.overdue ? "danger" : "default"} hint={`${counts.blocked} blocked`} href="/tasks?scope=all&sort=due" />
       </div>
-      <p className="mb-6 text-xs text-muted-foreground">
-        Each task counted once (a parent task counts through its subtasks; cancelled tasks excluded). Reports count Admins and
-        Individuals; super admins do not report.
-      </p>
 
-      {/* Team attendance today: same figures as Attendance & HR → Team Attendance. */}
-      <Section
-        title="Team attendance today"
-        className="mb-6"
-        action={
-          <Link href="/hr" className={textLink}>
-            Team attendance
+      {/* Date filter for the department, employee, total-work and client/project figures. */}
+      <div className="mb-6 flex flex-wrap items-center gap-2 rounded-xl border border-border/80 bg-card px-4 py-3 shadow-card">
+        <CalendarDays className="size-4 text-muted-foreground" aria-hidden="true" />
+        <span className="mr-1 text-sm font-medium">{rangeLabel}</span>
+        <Link href="/dashboard" className={cn(chip, !range && chipActive)}>
+          All time
+        </Link>
+        {presets.map((p) => (
+          <Link key={p.label} href={`/dashboard?from=${p.from}&to=${p.to}`} className={cn(chip, range?.from === p.from && range?.to === p.to && chipActive)}>
+            {p.label}
           </Link>
-        }
-      >
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <StatCard label={`Present (incl. ${attendance.wfh} work from home)`} value={attendance.present} icon={CheckCircle2} tone="success" href="/hr" />
-          <StatCard label="On leave" value={attendance.onLeave} icon={CalendarDays} tone="info" href="/hr/leave" />
-          <StatCard label="Absent" value={attendance.absent} icon={AlertTriangle} tone={attendance.absent ? "danger" : "default"} href="/hr" />
-          <StatCard label="Not checked in yet" value={attendance.notCheckedIn} icon={Clock} href="/hr" />
-          <StatCard label="Active employees (all workspaces)" value={attendance.active} icon={Users} href="/hr" />
-        </div>
-      </Section>
+        ))}
+        <form action="/dashboard" className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          <Input type="date" name="from" defaultValue={range?.from ?? ""} aria-label="From" className="h-8 w-[9.5rem] text-sm" />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Input type="date" name="to" defaultValue={range?.to ?? ""} aria-label="To" className="h-8 w-[9.5rem] text-sm" />
+          <button type="submit" className={buttonVariants({ variant: "outline", size: "sm" })}>
+            Apply
+          </button>
+        </form>
+      </div>
 
-      <Section title={`Department progress (${departments.length})`} className="mb-6">
-        {departments.length ? (
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {departments.map((d) => (
-              <li key={d.department} className="rounded-lg border p-3">
-                <div className="flex items-baseline justify-between gap-2 text-sm">
-                  <span className="font-medium">{d.department}</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {d.completed}/{d.total} · {d.completionPercent}%
+      {/* 2 · 3 · 7 */}
+      <div className="mb-6 grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+        <Section title="Department progress" icon={BarChart3} description={`${workspace.name} · ${rangeLabel}`}>
+          {departments.length ? (
+            <ul className="grid gap-3.5">
+              {departments.map((d, i) => (
+                <li key={d.department} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1.5 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="size-2 shrink-0 rounded-full" style={{ background: `var(--chart-${(i % 5) + 1})` }} aria-hidden="true" />
+                    <span className="truncate font-medium">{d.department}</span>
                   </span>
-                </div>
-                <ProgressBar value={d.completionPercent} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {d.employees} employee{d.employees === 1 ? "" : "s"}
-                </p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">No active employees yet.</p>
-        )}
-        <p className="mt-2 text-xs text-muted-foreground">
-          Completed / total tasks of each department&apos;s people{range ? ` (${range.from} to ${range.to})` : ""}; a shared task counts once per department.
-        </p>
-      </Section>
-
-      <Section title={`Employee performance (${performance.length})`} className="mb-6">
-        <EmployeePerformanceTable rows={performance} from={range?.from ?? ""} to={range?.to ?? ""} today={today} />
-      </Section>
-
-      <Section
-        title={`Employees today — tasks and reports (${employees.length})`}
-        className="mb-6"
-        action={
-          <span className="flex flex-wrap justify-end gap-x-3 gap-y-1">
-            <Link href="/reports" className={textLink}>
-              Compare morning and evening reports
-            </Link>
-            <Link href="/team" className={textLink}>
-              All employees
-            </Link>
-          </span>
-        }
-      >
-        <DailyTrackingPanel employees={employees} summaries={summaries} />
-      </Section>
-
-      {/* 2. Client and project progress. */}
-      <Section
-        title={`Client and project progress (${projectRows.length})`}
-        className="mb-6"
-        action={
-          <span className="flex flex-wrap justify-end gap-x-3 gap-y-1">
-            <Link href="/clients" className={textLink}>
-              All clients
-            </Link>
-            <Link href="/projects" className={textLink}>
-              All projects
-            </Link>
-          </span>
-        }
-      >
-        <ProjectProgressTable rows={projectRows} today={today} />
-      </Section>
-
-      {/* 3 + 4. Reports, overdue work and blockers. */}
-      <div className="mb-6 grid gap-6 lg:grid-cols-3">
-        <Section
-          title="Reports not submitted today"
-          action={
-            <Link href="/reports?status=morning_missing" className={textLink}>
-              Open report comparison
-            </Link>
-          }
-        >
-          <p className="text-xs font-medium text-muted-foreground">Morning plan ({noMorning.length})</p>
-          <p className="mb-3 text-sm">{noMorning.length ? noMorning.map((e) => e.name).join(", ") : "Everyone has submitted."}</p>
-          <p className="text-xs font-medium text-muted-foreground">Evening report ({noEvening.length})</p>
-          <p className="text-sm">{noEvening.length ? noEvening.map((e) => e.name).join(", ") : "Everyone has submitted."}</p>
-        </Section>
-        <Section title={`Overdue tasks (${overdue.length})`}>
-          <CompactTaskList tasks={overdue.slice(0, 6)} today={today} empty="Nothing overdue." showAssignee />
-          {overdue.length > 6 ? (
-            <Link href="/tasks?scope=all&sort=due" className={`${textLink} mt-3 inline-block`}>
-              View all overdue work
-            </Link>
-          ) : null}
-        </Section>
-        <Section title={`Blockers (${blocked.length} blocked task${blocked.length === 1 ? "" : "s"})`}>
-          <CompactTaskList tasks={blocked.slice(0, 5)} today={today} empty="No blocked tasks." showAssignee />
-          {reportedBlockers.length ? (
-            <ul className="mt-3 grid gap-2 border-t pt-3 text-sm">
-              {reportedBlockers.map((b) => (
-                <li key={b.userId}>
-                  <Link href={`/reports?employee=${b.userId}`} className="font-medium hover:underline">
-                    {b.name}
-                  </Link>
-                  {b.blockers ? <p className="whitespace-pre-wrap break-words text-muted-foreground">Blocker: {b.blockers}</p> : null}
-                  {b.workRemaining ? <p className="whitespace-pre-wrap break-words text-muted-foreground">Delay: {b.workRemaining}</p> : null}
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {d.completed} / {d.total}
+                  </span>
+                  <span className="col-span-2 flex items-center gap-2">
+                    <ProgressBar value={d.completionPercent} />
+                    <span className="w-9 shrink-0 text-right text-xs font-medium tabular-nums">{d.completionPercent}%</span>
+                  </span>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">No blockers or delays reported in today&apos;s evening reports.</p>
+            <p className="text-sm text-muted-foreground">No active employees yet.</p>
+          )}
+        </Section>
+
+        <Section
+          title="Team attendance"
+          icon={CalendarDays}
+          description="Today · all workspaces"
+          action={
+            <Link href="/hr" className={sectionLinkClass}>
+              View details →
+            </Link>
+          }
+        >
+          <AttendanceDonut attendance={attendance} />
+        </Section>
+
+        <Section
+          title={`Pending leave applications (${pendingLeave.length})`}
+          icon={CalendarOff}
+          className="lg:col-span-2 xl:col-span-1"
+          action={
+            <Link href="/hr/leave" className={sectionLinkClass}>
+              View all →
+            </Link>
+          }
+        >
+          {pendingLeave.length ? (
+            <ul className="-my-1 divide-y divide-border/70">
+              {pendingLeave.slice(0, 5).map((l) => {
+                // Whole days the application has waited, by workspace date.
+                const waiting = Math.max(0, Math.round((Date.parse(today) - Date.parse(l.createdAt.slice(0, 10))) / 86400000));
+                return (
+                  <li key={l.id} className="flex items-center gap-3 py-2.5 text-sm">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[11px] font-semibold text-brand-soft-foreground">
+                      {initials(l.applicant.name)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{l.applicant.name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[l.applicant.department, `${formatDate(l.start)}${l.end !== l.start ? ` – ${formatDate(l.end)}` : ""}`].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                    <Badge variant={waiting >= 2 ? "danger" : "warning"} title="Waiting for a decision">
+                      {waiting === 0 ? "Today" : `${waiting} day${waiting === 1 ? "" : "s"}`}
+                    </Badge>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No applications waiting for a decision.</p>
           )}
         </Section>
       </div>
 
-      {/* 5. Morning and evening meetings (scheduled in Settings → Meeting links). */}
-      <Section
-        title="Meetings — next 7 days"
-        action={
-          <Link href="/settings" className={textLink}>
-            Schedule or edit meetings
-          </Link>
-        }
-      >
-        {!meetingRecords.available ? (
-          <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            Meeting notes need database migration 013 (meeting records). Meetings are listed; notes can be recorded once it is applied.
-          </p>
-        ) : null}
-        {occurrences.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No meetings scheduled. Add morning and evening meetings in Settings.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[44rem] text-sm">
-              <thead className="border-b text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="py-2 pr-3 font-medium">When</th>
-                  <th className="px-3 py-2 font-medium">Meeting</th>
-                  <th className="px-3 py-2 font-medium">Participants</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
-                  <th className="px-3 py-2 font-medium">Follow-up</th>
-                  <th className="py-2 pl-3 text-right font-medium">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {occurrences.slice(0, 21).map((o) => {
-                  const record = recordOf.get(`${o.meeting.id}:${o.date}`) ?? null;
-                  const status = MEETING_STATUS[o.status];
-                  return (
-                    <tr key={`${o.meeting.id}:${o.date}`} className="align-top">
-                      <td className="py-2 pr-3 whitespace-nowrap">
-                        <span className="block">{o.date === today ? "Today" : formatDate(o.date)}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {[formatClock(o.meeting.startsAt), o.recurring ? "daily" : "one-off"].filter(Boolean).join(" · ")}
+      {/* 4 · 5 */}
+      <div className="mb-6 grid gap-6 xl:grid-cols-2">
+        <Section
+          title="Daily updates"
+          icon={ClipboardCheck}
+          description={`Today · ${morningDone}/${employees.length} morning plans · ${eveningDone}/${employees.length} evening reports`}
+          action={
+            <Link href="/reports" className={sectionLinkClass}>
+              View all →
+            </Link>
+          }
+        >
+          <Tabs defaultValue="morning">
+            <TabsList className="mb-3">
+              <TabsTrigger value="morning">Morning plans</TabsTrigger>
+              <TabsTrigger value="evening">Evening reports</TabsTrigger>
+              <TabsTrigger value="status">Status</TabsTrigger>
+            </TabsList>
+            <TabsContent value="morning">
+              <ReportTable
+                rows={employees.map((e) => ({ ...e, detail: `${summaries.get(e.userId)?.morning ?? 0} planned · ${summaries.get(e.userId)?.added ?? 0} added`, at: reportsBy.get(e.userId)?.morningSubmittedAt ?? null }))}
+                detailHead="Morning plan"
+              />
+            </TabsContent>
+            <TabsContent value="evening">
+              <ReportTable
+                rows={employees.map((e) => {
+                  const r = reportsBy.get(e.userId);
+                  const s = summaries.get(e.userId);
+                  return { ...e, detail: `${s?.completed ?? 0} done · ${s?.inProgress ?? 0} in progress${r?.blockers ? " · blocker reported" : ""}`, at: r?.eveningSubmittedAt ?? null };
+                })}
+                detailHead="Evening report"
+              />
+            </TabsContent>
+            <TabsContent value="status">
+              <dl className="grid grid-cols-2 gap-3 text-sm">
+                {[
+                  { label: "Morning plans submitted", value: morningDone, tone: "text-success-foreground" },
+                  { label: "Morning plans pending", value: employees.length - morningDone, tone: "text-warning-foreground" },
+                  { label: "Evening reports submitted", value: eveningDone, tone: "text-success-foreground" },
+                  { label: "Evening reports pending", value: employees.length - eveningDone, tone: "text-warning-foreground" },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-lg border border-border/70 p-3">
+                    <dt className="text-xs text-muted-foreground">{s.label}</dt>
+                    <dd className={cn("text-xl font-semibold tabular-nums", s.tone)}>{s.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </TabsContent>
+          </Tabs>
+        </Section>
+
+        <Section
+          title="Employee performance"
+          icon={Users}
+          description={`${workspace.name} · ${rangeLabel}`}
+          action={
+            <Link href="/team" className={sectionLinkClass}>
+              View all →
+            </Link>
+          }
+        >
+          {performance.length ? (
+            <div className="-mx-4 overflow-x-auto sm:-mx-5">
+              <table className="w-full min-w-[28rem] text-sm">
+                <thead className={head}>
+                  <tr className="border-b border-border/70">
+                    <th className="px-4 py-2 font-medium sm:px-5">Employee</th>
+                    <th className="px-3 py-2 font-medium">Department</th>
+                    <th className="px-3 py-2 text-right font-medium">Total work</th>
+                    <th className="px-4 py-2 font-medium sm:px-5">Completion</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/70">
+                  {performance.slice(0, 8).map((p) => (
+                    <tr key={p.userId}>
+                      <td className="px-4 py-2.5 font-medium sm:px-5">
+                        <span className="flex items-center gap-2">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[10px] font-semibold text-brand-soft-foreground">{initials(p.name)}</span>
+                          <span className="truncate">{p.name}</span>
                         </span>
                       </td>
-                      <td className="px-3 py-2">
-                        <span className="block font-medium">{o.meeting.title}</span>
-                        <span className="text-xs text-muted-foreground">{MEETING_KIND[o.meeting.kind]}</span>
-                        {record?.agenda ? <p className="line-clamp-2 text-xs text-muted-foreground">Agenda: {record.agenda}</p> : null}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">{o.meeting.team ?? "Everyone"}</td>
-                      <td className="px-3 py-2">
-                        <span className={`rounded px-1.5 py-px text-[11px] font-medium ${status.tone}`}>{status.label}</span>
-                        {record?.decisions ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">Decisions: {record.decisions}</p> : null}
-                      </td>
-                      <td className="px-3 py-2 text-xs">
-                        {record?.followUpTaskIds.length ? (
-                          <ul className="grid gap-0.5">
-                            {record.followUpTaskIds.map((id) => (
-                              <li key={id}>
-                                <Link href={`/tasks/${id}`} className="hover:underline">
-                                  {taskTitle.get(id) ?? "Task"}
-                                </Link>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="py-2 pl-3">
-                        <span className="flex justify-end gap-1.5">
-                          <a href={o.meeting.url} target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: "outline", size: "sm", className: "h-7 px-2 text-xs" })}>
-                            Join
-                          </a>
-                          {meetingRecords.available ? (
-                            <MeetingRecordButton
-                              workspaceId={workspace.id}
-                              meetingId={o.meeting.id}
-                              title={`${o.meeting.title} · ${MEETING_KIND[o.meeting.kind]}`}
-                              date={o.date}
-                              record={record}
-                              taskOptions={taskOptions}
-                            />
-                          ) : null}
+                      <td className="px-3 py-2.5 text-muted-foreground">{p.department ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{p.total}</td>
+                      <td className="px-4 py-2.5 sm:px-5">
+                        <span className="flex items-center gap-2">
+                          <ProgressBar value={p.completionPercent} className="w-20 [&>div]:bg-success" />
+                          <span className="w-9 text-right text-xs font-medium tabular-nums">{p.completionPercent}%</span>
                         </span>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No active employees yet.</p>
+          )}
+        </Section>
+      </div>
+
+      {/* 6 · 8 */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Section
+          title="Client & project progress"
+          icon={FolderKanban}
+          description={`${projectRows.length} project${projectRows.length === 1 ? "" : "s"} · ${rangeLabel}`}
+          action={
+            <Link href="/projects" className={sectionLinkClass}>
+              View all →
+            </Link>
+          }
+        >
+          {projectRows.length ? (
+            <div className="-mx-4 overflow-x-auto sm:-mx-5">
+              <table className="w-full min-w-[30rem] text-sm">
+                <thead className={head}>
+                  <tr className="border-b border-border/70">
+                    <th className="px-4 py-2 font-medium sm:px-5">Client</th>
+                    <th className="px-3 py-2 font-medium">Project</th>
+                    <th className="px-3 py-2 font-medium">Progress</th>
+                    <th className="px-4 py-2 font-medium sm:px-5">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/70">
+                  {projectRows.slice(0, 8).map((r) => {
+                    const pct = r.total ? Math.round((r.completed / r.total) * 100) : 0;
+                    return (
+                      <tr key={r.project.id}>
+                        <td className="px-4 py-2.5 text-muted-foreground sm:px-5">{r.project.clientName ?? "Internal"}</td>
+                        <td className="max-w-[12rem] truncate px-3 py-2.5 font-medium">
+                          <Link href={`/projects/${r.project.id}`} className="hover:underline">
+                            {r.project.name}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="flex items-center gap-2">
+                            <ProgressBar value={pct} className="w-20" />
+                            <span className="w-14 text-right text-xs tabular-nums text-muted-foreground">
+                              {r.completed}/{r.total}
+                            </span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 sm:px-5">
+                          {projectStatus.get(r.project.id) ? <ProjectStatusBadge status={projectStatus.get(r.project.id)!} /> : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No projects in this workspace yet.</p>
+          )}
+        </Section>
+
+        <Section
+          title="Total work"
+          icon={ListTodo}
+          description={`Per employee · ${rangeLabel}`}
+          action={
+            <Link href="/tasks?scope=all" className={sectionLinkClass}>
+              View all →
+            </Link>
+          }
+        >
+          {performance.length ? (
+            <div className="-mx-4 overflow-x-auto sm:-mx-5">
+              <table className="w-full min-w-[28rem] text-sm">
+                <thead className={head}>
+                  <tr className="border-b border-border/70">
+                    <th className="px-4 py-2 font-medium sm:px-5">Employee</th>
+                    <th className="px-3 py-2 text-right font-medium">Tasks</th>
+                    <th className="px-3 py-2 text-right font-medium">Completed</th>
+                    <th className="px-3 py-2 text-right font-medium">In progress</th>
+                    <th className="px-4 py-2 text-right font-medium sm:px-5">Overdue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/70">
+                  {performance.slice(0, 8).map((p) => (
+                    <tr key={p.userId}>
+                      <td className="max-w-[10rem] truncate px-4 py-2.5 font-medium sm:px-5">{p.name}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{p.total}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-success-foreground">{p.completed}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{p.inProgress}</td>
+                      <td className={cn("px-4 py-2.5 text-right tabular-nums sm:px-5", p.overdue ? "font-semibold text-danger-foreground" : "text-muted-foreground")}>{p.overdue}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No active employees yet.</p>
+          )}
+        </Section>
+      </div>
     </>
   );
+}
+
+const chip = "rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+const chipActive = "border-primary/30 bg-brand-soft text-brand-soft-foreground hover:bg-brand-soft";
+
+function initials(name: string) {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]!.toUpperCase())
+      .join("") || "?"
+  );
+}
+
+/** Today's report status per employee, for one report type. */
+function ReportTable({ rows, detailHead }: { rows: { userId: string; name: string; team: string | null; detail: string; at: string | null }[]; detailHead: string }) {
+  if (!rows.length) return <p className="text-sm text-muted-foreground">No active employees yet.</p>;
+  return (
+    <div className="-mx-4 max-h-80 overflow-auto sm:-mx-5">
+      <table className="w-full min-w-[28rem] text-sm">
+        <thead className="sticky top-0 bg-card text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          <tr className="border-b border-border/70">
+            <th className="px-4 py-2 font-medium sm:px-5">Employee</th>
+            <th className="px-3 py-2 font-medium">{detailHead}</th>
+            <th className="px-4 py-2 text-right font-medium sm:px-5">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/70">
+          {rows.map((r) => (
+            <tr key={r.userId}>
+              <td className="px-4 py-2.5 sm:px-5">
+                <Link href={`/reports?employee=${r.userId}`} className="block truncate font-medium hover:underline">
+                  {r.name}
+                </Link>
+                <span className="block truncate text-xs text-muted-foreground">{r.team ?? "No department"}</span>
+              </td>
+              <td className="px-3 py-2.5 text-xs text-muted-foreground">{r.detail}</td>
+              <td className="px-4 py-2.5 text-right sm:px-5">
+                <Badge variant={r.at ? "success" : "warning"}>{r.at ? "Submitted" : "Pending"}</Badge>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Present / on leave / absent (plus not checked in) as a ring, from the HR attendance counts. */
+function AttendanceDonut({ attendance }: { attendance: DashboardCounts }) {
+  const parts = [
+    { label: "Present", value: attendance.present, color: "var(--success)", hint: attendance.wfh ? `incl. ${attendance.wfh} WFH` : null },
+    { label: "On leave", value: attendance.onLeave, color: "var(--warning)", hint: null },
+    { label: "Absent", value: attendance.absent, color: "var(--danger)", hint: null },
+    { label: "Not checked in", value: attendance.notCheckedIn, color: "var(--neutral)", hint: null },
+  ];
+  const total = parts.reduce((s, p) => s + p.value, 0);
+  const r = 42;
+  const c = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <div className="flex flex-col items-center gap-5 sm:flex-row lg:flex-col 2xl:flex-row">
+      <div className="relative size-36 shrink-0">
+        <svg viewBox="0 0 100 100" className="size-full -rotate-90" role="img" aria-label={`${attendance.present} of ${total} present`}>
+          <circle cx="50" cy="50" r={r} fill="none" stroke="var(--muted)" strokeWidth="11" />
+          {total
+            ? parts.map((p) => {
+                const len = (p.value / total) * c;
+                const el = <circle key={p.label} cx="50" cy="50" r={r} fill="none" stroke={p.color} strokeWidth="11" strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-offset} />;
+                offset += len;
+                return el;
+              })
+            : null}
+        </svg>
+        <span className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-semibold tabular-nums">{attendance.present}</span>
+          <span className="text-xs text-muted-foreground">Present</span>
+        </span>
+      </div>
+      <ul className="grid w-full gap-2 text-sm">
+        {parts.map((p) => (
+          <li key={p.label} className="flex items-center gap-2.5">
+            <span className="size-2.5 shrink-0 rounded-full" style={{ background: p.color }} aria-hidden="true" />
+            <span className="flex-1">
+              {p.label}
+              {p.hint ? <span className="ml-1 text-xs text-muted-foreground">({p.hint})</span> : null}
+            </span>
+            <span className="font-semibold tabular-nums">{p.value}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** "Good morning" etc. in the workspace's own timezone. */
+function greeting(timeZone: string) {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone }).format(new Date()));
+  return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 }
 
 type AdminProps = Props & {
   name: string;
   team: Awaited<ReturnType<typeof loadTeamToday>>;
   projectOptions: Awaited<ReturnType<typeof listProjectOptions>>;
-  meetingCard: ReactNode;
   /** Every client of the workspace, for the New task dialog. */
   clientOptions: { id: string; name: string }[];
   /** Clients for Add project; null when the admin may not create projects in this workspace. */
@@ -614,7 +713,7 @@ function TaskLine({
  * Admin: personal work and work handed out to others, side by side; team
  * progress below. Creating a task uses the existing New task dialog.
  */
-function AdminDashboard({ session, workspace, tasks, projects, members, today, name, team, projectOptions, meetingCard, clientOptions, clients }: AdminProps) {
+function AdminDashboard({ session, workspace, tasks, projects, members, today, name, team, projectOptions, clientOptions, clients }: AdminProps) {
   const me = session.user.id;
   const handedOut = (t: TaskSummary) =>
     (t.createdBy === me || t.assignees.some((a) => a.assignedBy === me)) && t.assignees.some((a) => a.userId !== me);
@@ -672,7 +771,6 @@ function AdminDashboard({ session, workspace, tasks, projects, members, today, n
         }
       />
 
-      <div className="mb-6">{meetingCard}</div>
 
       {awaitingReview.length ? (
         <Section

@@ -1,11 +1,12 @@
 "use client";
 
-import { Bell, CheckCheck, LogOut, Search, Settings } from "lucide-react";
+import { Bell, CheckCheck, ChevronDown, LogOut, Search, Settings } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
+import { ThemeMenuItems } from "@/components/app/theme-menu";
 import { UserAvatar } from "@/components/app/user-avatar";
 import {
   DropdownMenu,
@@ -35,15 +36,15 @@ export function SearchBox() {
   }
 
   return (
-    <form onSubmit={onSubmit} role="search" className="relative w-full max-w-sm">
-      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+    <form onSubmit={onSubmit} role="search" className="relative w-full min-w-0 max-w-md">
+      <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
       <Input
         type="search"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="Search tasks…"
         aria-label="Search tasks"
-        className="h-9 pl-8"
+        className="h-10 rounded-full border-border/80 bg-surface pl-10 shadow-none focus-visible:bg-card"
       />
     </form>
   );
@@ -66,12 +67,12 @@ export function NotificationsMenu({ items, unread }: { items: NotificationItem[]
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="relative inline-flex size-9 items-center justify-center rounded-lg outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border/80 bg-card text-foreground shadow-xs outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50"
         aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
       >
-        <Bell className="size-4" aria-hidden="true" />
+        <Bell className="size-[18px]" aria-hidden="true" />
         {unread > 0 ? (
-          <span className="absolute top-1 right-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+          <span className="absolute -top-0.5 -right-0.5 flex min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-[18px] font-semibold text-primary-foreground ring-2 ring-card">
             {unread > 9 ? "9+" : unread}
           </span>
         ) : null}
@@ -111,7 +112,7 @@ export function NotificationsMenu({ items, unread }: { items: NotificationItem[]
                 }
               >
                 <span className="flex w-full items-center gap-2">
-                  <span className={cn("size-1.5 shrink-0 rounded-full", n.isRead ? "bg-transparent" : "bg-blue-500")} />
+                  <span className={cn("size-1.5 shrink-0 rounded-full", n.isRead ? "bg-transparent" : "bg-primary")} />
                   <span className="flex-1 truncate font-medium">{n.title}</span>
                 </span>
                 {n.message ? <span className="line-clamp-2 pl-3.5 text-xs text-muted-foreground">{n.message}</span> : null}
@@ -129,10 +130,15 @@ export function UserMenu({ name, email, roleLabel, userId }: { name: string; ema
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="inline-flex items-center gap-2 rounded-lg p-1 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="inline-flex items-center gap-2.5 rounded-full p-0.5 text-left outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 sm:rounded-xl sm:py-1 sm:pr-2 sm:pl-1"
         aria-label="Account menu"
       >
-        <UserAvatar name={name} seed={userId} />
+        <UserAvatar name={name} seed={userId} size="lg" />
+        <span className="hidden min-w-0 leading-tight sm:grid">
+          <span className="max-w-40 truncate text-sm font-semibold">{name}</span>
+          <span className="text-xs text-muted-foreground">{roleLabel}</span>
+        </span>
+        <ChevronDown className="hidden size-4 text-muted-foreground sm:block" aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuGroup>
@@ -142,6 +148,8 @@ export function UserMenu({ name, email, roleLabel, userId }: { name: string; ema
             <span className="text-xs">{roleLabel}</span>
           </DropdownMenuLabel>
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <ThemeMenuItems />
         <DropdownMenuSeparator />
         <DropdownMenuItem render={<Link href="/settings" />}>
           <Settings aria-hidden="true" /> Settings

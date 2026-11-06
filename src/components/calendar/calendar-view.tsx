@@ -181,9 +181,11 @@ export function CalendarView({
         <span className="flex items-center gap-1">
           <Flag className="size-3" aria-hidden="true" /> Due
         </span>
-        <span className="flex items-center gap-1">
-          <Video className="size-3" aria-hidden="true" /> Meeting
-        </span>
+        {meetings.length ? (
+          <span className="flex items-center gap-1">
+            <Video className="size-3" aria-hidden="true" /> Meeting
+          </span>
+        ) : null}
         {canCreate ? <span>Click an empty day to create a task scheduled for it.</span> : null}
       </p>
       {createFor ? (

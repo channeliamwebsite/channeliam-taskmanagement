@@ -9,6 +9,20 @@ import { loadError } from "./errors";
 import { getMyWorkspaces } from "./workspace";
 
 /**
+ * Active Super Admins, company-wide. Super Admin is a company role without
+ * workspace membership, so workspace member lists never include them; reporting-
+ * manager pickers add them from here. RLS returns rows to super admins only.
+ */
+export async function listActiveSuperAdmins(): Promise<ManagerOption[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("profiles").select("id, full_name, email, job_title").eq("role", "SUPER_ADMIN").eq("is_active", true);
+  if (error) throw loadError("Failed to load super admins", error);
+  return (data ?? [])
+    .map((p) => ({ userId: p.id, name: `${displayName({ full_name: p.full_name, email: p.email })} · ${p.job_title?.trim() || "Super Admin"}` }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
  * What /hr/employees/[id] needs for the Employment and Account sections (super
  * admins; RLS lets them read every profile and membership). Null when the
  * profile is not visible.

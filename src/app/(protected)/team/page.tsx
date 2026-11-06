@@ -6,6 +6,7 @@ import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { UserAvatar } from "@/components/app/user-avatar";
 import { AddEmployeeButton, MemberActions } from "@/components/team/member-controls";
 import { ROLE_LABELS, ROLES, ROUTE_ROLES } from "@/lib/auth/roles";
+import { listActiveSuperAdmins } from "@/lib/data/employee-admin";
 import { getAccountStatuses } from "@/lib/data/employees";
 import { listTasks } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
@@ -29,12 +30,14 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
   const role = get("role");
   const active = get("active");
 
-  const [members, tasks] = await Promise.all([
+  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  const [members, tasks, superAdmins] = await Promise.all([
     getWorkspaceMembers(workspace.id),
     // Open/overdue/blocked counts below only involve unfinished tasks.
     listTasks({ workspaceId: workspace.id, openOnly: true }),
+    // Reporting-manager options: only super admins add or edit employees here.
+    isSuperAdmin ? listActiveSuperAdmins() : Promise.resolve([]),
   ]);
-  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const me = session.user.id;
 
   // Super admin only: invitation / sign-in status from Supabase Auth (server-side
@@ -67,9 +70,13 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
     if (active === "inactive" && m.isActive) return false;
     return true;
   });
-  const managers = members
-    .filter((m) => m.isActive && m.role !== "INDIVIDUAL")
-    .map((m) => ({ userId: m.userId, name: nameOf.get(m.userId)! }));
+  // Reporting managers: active Super Admins (company-wide, not workspace members)
+  // and this workspace's active Admins. Each person once.
+  const workspaceAdmins = members
+    .filter((m) => m.isActive && m.role === "ADMIN")
+    .map((m) => ({ userId: m.userId, name: `${nameOf.get(m.userId)!}${m.jobTitle?.trim() ? ` · ${m.jobTitle.trim()}` : " · Admin"}` }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const managers = [...superAdmins, ...workspaceAdmins].filter((m, i, all) => all.findIndex((o) => o.userId === m.userId) === i);
 
   return (
     <>

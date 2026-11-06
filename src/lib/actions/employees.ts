@@ -61,7 +61,17 @@ export async function createEmployee(request: AddEmployeeRequest): Promise<Actio
       .eq("workspace_id", workspaceId)
       .eq("user_id", input.managerId)
       .maybeSingle();
-    if (!manager) return fail("The reporting manager must be a member of this workspace.");
+    if (!manager) {
+      // Super Admin is company-wide (no membership): accept an active one.
+      const { data: superAdmin } = await actor.supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", input.managerId)
+        .eq("role", "SUPER_ADMIN")
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!superAdmin) return fail("The reporting manager must be an active Super Admin or a member of this workspace.");
+    }
   }
 
   const admin = adminClient();

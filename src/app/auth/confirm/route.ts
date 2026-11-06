@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { confirmErrorCode, parseConfirmRequest } from "@/lib/auth/email-links";
-import { LOGIN_ROUTE, SET_PASSWORD_ROUTE } from "@/lib/auth/routes";
+import { confirmErrorCode, parseConfirmRequest, passwordPageFor } from "@/lib/auth/email-links";
+import { LOGIN_ROUTE } from "@/lib/auth/routes";
 import { createClient } from "@/lib/supabase/server";
 
 // Invitation and password-reset links from Supabase Auth land here. Verifying
@@ -27,7 +27,8 @@ export async function GET(request: NextRequest) {
         ? await supabase.auth.verifyOtp({ type: link.type, token_hash: link.tokenHash })
         : await supabase.auth.exchangeCodeForSession(link.code);
     if (!error) {
-      url.pathname = SET_PASSWORD_ROUTE;
+      // Invitations create a password; resets replace it (separate pages).
+      url.pathname = passwordPageFor(link.type);
       return NextResponse.redirect(url, { status: 303 });
     }
     // Supabase Auth answers expired, already-used and unknown tokens alike
@@ -38,6 +39,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(url, { status: 303 });
   }
 
+  // No token in the query: Supabase's default templates put the session in the
+  // URL fragment, which the server never sees. The browser keeps the fragment
+  // across this redirect, and /auth/callback finishes the link client-side.
+  if (!request.nextUrl.searchParams.has("error") && !request.nextUrl.searchParams.has("error_code")) {
+    url.pathname = "/auth/callback";
+    if (link.type === "invite") url.searchParams.set("type", "invite");
+    return NextResponse.redirect(url, { status: 303 });
+  }
   url.pathname = LOGIN_ROUTE;
   url.searchParams.set("error", confirmErrorCode(link.type, link.expired));
   return NextResponse.redirect(url, { status: 303 });

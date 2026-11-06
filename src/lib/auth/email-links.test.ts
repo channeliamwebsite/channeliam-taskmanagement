@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { RESET_REQUESTED, authLinkUrl, confirmErrorCode, confirmRedirect, parseConfirmRequest, resetRequestError } from "./email-links.ts";
+import {
+  RESET_REQUESTED,
+  authLinkUrl,
+  confirmErrorCode,
+  confirmRedirect,
+  parseAuthFragment,
+  parseConfirmRequest,
+  passwordPageFor,
+  resetRequestError,
+} from "./email-links.ts";
 
 const q = (s: string) => new URLSearchParams(s);
 
@@ -65,5 +74,36 @@ describe("resetRequestError", () => {
   it("explains rate limiting", () => {
     assert.match(resetRequestError({ status: 429, code: "over_email_send_rate_limit" }) ?? "", /Too many reset emails/);
     assert.match(resetRequestError({ message: "email rate limit exceeded" }) ?? "", /Too many reset emails/);
+  });
+});
+
+describe("parseAuthFragment (Supabase default templates, implicit flow)", () => {
+  it("reads an invitation session", () => {
+    assert.deepEqual(parseAuthFragment("#access_token=a&refresh_token=r&expires_in=3600&type=invite"), {
+      kind: "session",
+      type: "invite",
+      accessToken: "a",
+      refreshToken: "r",
+    });
+  });
+  it("reads a recovery session", () => {
+    assert.equal(parseAuthFragment("access_token=a&refresh_token=r&type=recovery")?.type, "recovery");
+  });
+  it("reports expired links", () => {
+    assert.deepEqual(parseAuthFragment("#error=access_denied&error_code=otp_expired&type=invite"), { kind: "error", type: "invite", expired: true });
+  });
+  it("treats an incomplete session as invalid", () => {
+    assert.deepEqual(parseAuthFragment("#access_token=a&type=recovery"), { kind: "error", type: "recovery", expired: false });
+  });
+  it("ignores fragments without auth data", () => {
+    assert.equal(parseAuthFragment(""), null);
+    assert.equal(parseAuthFragment("#section-2"), null);
+  });
+});
+
+describe("passwordPageFor", () => {
+  it("sends invitations to create and resets to reset", () => {
+    assert.equal(passwordPageFor("invite"), "/auth/create-password");
+    assert.equal(passwordPageFor("recovery"), "/auth/reset-password");
   });
 });

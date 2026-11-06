@@ -24,7 +24,8 @@ export const PROTECTED_ROUTES = [
 ] as const;
 
 /** Reachable both signed in and signed out (no redirect either way). */
-export const NEUTRAL_ROUTES = ["/auth/signout", "/auth/confirm"] as const;
+// /auth/callback finishes links whose session is in the URL fragment (browser only).
+export const NEUTRAL_ROUTES = ["/auth/signout", "/auth/confirm", "/auth/callback"] as const;
 
 function matches(pathname: string, route: string) {
   return pathname === route || pathname.startsWith(`${route}/`);

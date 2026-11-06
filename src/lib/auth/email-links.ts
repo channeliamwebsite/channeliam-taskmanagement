@@ -40,6 +40,36 @@ export function confirmErrorCode(type: AuthLinkType, expired: boolean): string {
   return expired ? "reset_expired" : "reset_invalid";
 }
 
+/** Where each link type chooses its password: invitations create one, resets replace it. */
+export const CREATE_PASSWORD_ROUTE = "/auth/create-password";
+export const RESET_PASSWORD_ROUTE = "/auth/reset-password";
+export function passwordPageFor(type: AuthLinkType): string {
+  return type === "invite" ? CREATE_PASSWORD_ROUTE : RESET_PASSWORD_ROUTE;
+}
+
+/**
+ * Supabase's default email templates (and admin-generated links) use the
+ * implicit flow: the session arrives in the URL fragment
+ * (#access_token=...&refresh_token=...&type=invite|recovery), which only the
+ * browser can read. Returns null when the fragment carries no auth data.
+ */
+export type FragmentLink =
+  | { kind: "session"; type: AuthLinkType; accessToken: string; refreshToken: string }
+  | { kind: "error"; type: AuthLinkType; expired: boolean };
+
+export function parseAuthFragment(hash: string): FragmentLink | null {
+  const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+  const rawType = params.get("type") ?? "";
+  const type: AuthLinkType = rawType === "invite" ? "invite" : "recovery";
+  const errorCode = params.get("error_code") ?? params.get("error");
+  if (errorCode) return { kind: "error", type, expired: errorCode === "otp_expired" };
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  if (accessToken && refreshToken) return { kind: "session", type, accessToken, refreshToken };
+  if (accessToken || refreshToken || rawType) return { kind: "error", type, expired: false };
+  return null;
+}
+
 /** The app's own confirmation URL for a hashed token from Supabase Auth. */
 export function authLinkUrl(origin: string, hashedToken: string, type: AuthLinkType): string {
   const url = new URL("/auth/confirm", origin);

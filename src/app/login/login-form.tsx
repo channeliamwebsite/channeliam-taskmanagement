@@ -1,9 +1,9 @@
 "use client";
 
-import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useActionState, useState, type FormEvent } from "react";
+import { useActionState, useEffect, useState, type FormEvent } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,15 @@ export function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "";
   const urlError = URL_ERRORS[searchParams.get("error") ?? ""];
+  const notice = searchParams.get("notice") === "password_reset" ? "Your password has been reset. Sign in with your new password." : null;
+
+  // Invitation / reset links that fell back to the Site URL arrive here with the
+  // session in the URL fragment: hand them to /auth/callback, which finishes them.
+  useEffect(() => {
+    if (/(^|[#&])(access_token|error_code)=/.test(window.location.hash)) {
+      window.location.replace(`/auth/callback${window.location.hash}`);
+    }
+  }, []);
 
   const [state, formAction, pending] = useActionState<SignInState, FormData>(signIn, {});
   const [email, setEmail] = useState("");
@@ -56,6 +65,11 @@ export function LoginForm() {
         <Alert variant="destructive" aria-live="polite">
           <AlertCircle />
           <AlertDescription>{formError}</AlertDescription>
+        </Alert>
+      ) : notice ? (
+        <Alert aria-live="polite" className="border-success/30 bg-success-soft text-success-foreground">
+          <CheckCircle2 />
+          <AlertDescription className="text-success-foreground">{notice}</AlertDescription>
         </Alert>
       ) : null}
 

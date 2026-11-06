@@ -61,9 +61,12 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
 }
 
 export type SetPasswordState = { error?: string };
+/** create: invitation (stays signed in). reset: recovery (signs out, back to sign-in). */
+export type PasswordMode = "create" | "reset";
 
 /** Sets the password for the signed-in user (after accepting an invitation). */
 export async function setPassword(_prev: SetPasswordState, formData: FormData): Promise<SetPasswordState> {
+  const mode: PasswordMode = formData.get("mode") === "reset" ? "reset" : "create";
   const password = String(formData.get("password") ?? "");
   const error = validateNewPassword(password, String(formData.get("confirm") ?? ""));
   if (error) return { error };
@@ -82,6 +85,11 @@ export async function setPassword(_prev: SetPasswordState, formData: FormData): 
   const { error: updateError } = await supabase.auth.updateUser({ password });
   if (updateError) {
     return { error: updateError.code === "same_password" ? "Choose a different password." : "Could not save the password. Please try again." };
+  }
+  if (mode === "reset") {
+    // After a reset, sign in again with the new password.
+    await supabase.auth.signOut();
+    redirect(`${LOGIN_ROUTE}?notice=password_reset`);
   }
   redirect(DEFAULT_AUTHENTICATED_ROUTE);
 }

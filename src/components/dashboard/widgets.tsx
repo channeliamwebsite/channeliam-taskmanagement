@@ -9,39 +9,51 @@ import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import { formatDate, isOverdue } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
+export type StatTone = "default" | "brand" | "danger" | "success" | "info" | "warning" | "violet";
+
+const STAT_TONES: Record<StatTone, { card: string; icon: string; value: string }> = {
+  default: { card: "from-surface to-card", icon: "bg-neutral-soft text-neutral-foreground", value: "text-foreground" },
+  brand: { card: "from-brand-soft/70 to-card", icon: "bg-brand-soft text-primary", value: "text-foreground" },
+  danger: { card: "from-danger-soft/70 to-card", icon: "bg-danger-soft text-danger-foreground", value: "text-danger-foreground" },
+  success: { card: "from-success-soft/70 to-card", icon: "bg-success-soft text-success-foreground", value: "text-foreground" },
+  info: { card: "from-info-soft/70 to-card", icon: "bg-info-soft text-info-foreground", value: "text-foreground" },
+  warning: { card: "from-warning-soft/70 to-card", icon: "bg-warning-soft text-warning-foreground", value: "text-foreground" },
+  violet: { card: "from-violet-soft/70 to-card", icon: "bg-violet-soft text-violet-foreground", value: "text-foreground" },
+};
+
+/** Summary figure: tinted card, round icon, large value, label and an optional caption. */
 export function StatCard({
   label,
   value,
   icon: Icon,
   tone = "default",
   href,
+  hint,
 }: {
   label: string;
   value: number | string;
   icon: LucideIcon;
-  tone?: "default" | "danger" | "success" | "info";
+  tone?: StatTone;
   href?: string;
+  /** Small caption under the label, e.g. "83% completion". */
+  hint?: string;
 }) {
-  const tones = {
-    default: "bg-muted text-foreground",
-    danger: "bg-red-50 text-red-600",
-    success: "bg-emerald-50 text-emerald-600",
-    info: "bg-blue-50 text-blue-600",
-  };
+  const t = STAT_TONES[tone];
   const body = (
     <>
-      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", tones[tone])}>
-        <Icon className="size-4" aria-hidden="true" />
+      <span className={cn("flex size-11 shrink-0 items-center justify-center rounded-full", t.icon)}>
+        <Icon className="size-5" aria-hidden="true" />
       </span>
       <span className="min-w-0">
-        <span className="block text-xl font-semibold tabular-nums">{value}</span>
-        <span className="block truncate text-xs text-muted-foreground">{label}</span>
+        <span className="block truncate text-sm font-medium text-muted-foreground">{label}</span>
+        <span className={cn("block text-2xl leading-tight font-semibold tracking-tight tabular-nums", t.value)}>{value}</span>
+        {hint ? <span className="block truncate text-xs text-muted-foreground">{hint}</span> : null}
       </span>
     </>
   );
-  const cls = "flex items-center gap-3 rounded-xl border bg-card p-3.5";
+  const cls = cn("flex items-center gap-3.5 rounded-xl border border-border/80 bg-gradient-to-br p-4 shadow-card", t.card);
   return href ? (
-    <Link href={href} className={cn(cls, "transition-colors hover:bg-muted/40")}>
+    <Link href={href} className={cn(cls, "transition-shadow outline-none hover:shadow-pop focus-visible:ring-3 focus-visible:ring-ring/40")}>
       {body}
     </Link>
   ) : (

@@ -6,12 +6,10 @@ import { PageHeader } from "@/components/app/page-header";
 import { CalendarView, type CalendarItem } from "@/components/calendar/calendar-view";
 import { CalendarFilters } from "@/components/calendar/calendar-filters";
 import { listClientOptions } from "@/lib/data/clients";
-import { listMeetingLinks } from "@/lib/data/meetings";
 import { listProjectOptions } from "@/lib/data/projects";
 import { listTasks } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { addDaysISO, displayName, formatDate, isOverdue, isPriority, isTaskStatus, weekdayOf } from "@/lib/domain";
-import { meetingsOnDays } from "@/lib/meetings";
 import { cn } from "@/lib/utils";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -73,14 +71,13 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     label = new Date(`${anchor}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   }
 
-  const [projects, members, clientOptions, meetingLinks] = await Promise.all([
+  // The calendar shows tasks only (decided 2026-11-06): meetings live on
+  // Team Today (super admins) and My Day (admins and individuals).
+  const [projects, members, clientOptions] = await Promise.all([
     listProjectOptions(workspace.id),
     getWorkspaceMembers(workspace.id),
     session.permissions.assignTasks ? listClientOptions(workspace.id) : Promise.resolve([]),
-    // RLS returns only the meetings the viewer may see (029).
-    listMeetingLinks(workspace.id, { activeOnly: true }),
   ]);
-  const meetings = meetingsOnDays(meetingLinks, days);
   const clientProjectIds =
     client === "none"
       ? projects.filter((p) => !p.clientId).map((p) => p.id)
@@ -190,7 +187,6 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
         month={anchor.slice(0, 7)}
         today={today}
         items={items}
-        meetings={meetings}
         canCreate
         workspaceId={workspace.id}
         selfOnly={session.permissions.assignTasks ? null : { userId: session.user.id }}

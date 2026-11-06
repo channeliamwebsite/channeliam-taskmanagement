@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronDown, Layers } from "lucide-react";
 import { useTransition } from "react";
 import { toast } from "sonner";
 
@@ -25,19 +25,19 @@ export function WorkspaceSwitcher({
   const active = workspaces.find((w) => w.id === activeId);
 
   if (workspaces.length === 0) {
-    return <p className="px-2 text-xs text-muted-foreground">No workspace</p>;
+    return <p className="px-3 text-xs text-muted-foreground">No workspace</p>;
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="flex w-full items-center gap-2 rounded-lg border bg-background px-2.5 py-2 text-left text-sm shadow-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+        className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2.5 text-left text-sm shadow-xs outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
         disabled={pending}
         aria-label="Switch workspace"
       >
-        <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <Layers className="size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-medium">{active?.name ?? "Select workspace"}</span>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
         <DropdownMenuGroup>

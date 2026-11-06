@@ -39,7 +39,7 @@ export default async function ClientReportsPage() {
       ) : (
         <div className="grid gap-4">
           {overview.map((c) => (
-            <Section key={c.clientId} title={c.clientName}>
+            <Section key={c.clientId} id={`client-${c.clientId}`} title={c.clientName}>
               <ClientReportCard overview={c} today={today} />
             </Section>
           ))}

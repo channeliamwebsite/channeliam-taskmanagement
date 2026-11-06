@@ -112,33 +112,65 @@ export async function AppShell({ children }: { children: ReactNode }) {
   };
   // Individuals: just their day. Admins: their day, then their team.
   // Super admins: the team first, then their own work.
+  // Super admins (decided 2026-11-06): a company-level menu only. No personal
+  // My Day / My Tasks / attendance pages (they do not check in); those pages
+  // still exist for the other roles and keep their own access checks.
+  const superAdminSections: NavSection[] = [
+    {
+      title: "Overview",
+      items: [
+        { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+        { href: "/team-today", label: "Team Today", icon: "teamtoday" },
+        { href: "/team", label: "Employees", icon: "team" },
+        { href: "/reports", label: "Daily Updates", icon: "reports" },
+        { href: "/calendar", label: "Calendar", icon: "calendar" },
+        { href: "/inbox", label: "Inbox", icon: "inbox", badge: notifications.unread },
+      ],
+    },
+    {
+      title: "Clients & Projects",
+      items: [
+        { href: "/clients", label: "Clients", icon: "clients" },
+        { href: "/projects", label: "Projects", icon: "projects" },
+        { href: "/client-reports", label: "Client Reports", icon: "myreports" },
+      ],
+    },
+    {
+      title: "HR & People",
+      items: [
+        { href: "/hr", label: "Team Attendance", icon: "teamattendance" },
+        { href: "/hr/leave", label: "Leave Applications", icon: "leave" },
+        { href: "/hr/employees", label: "Employee Profiles", icon: "employees" },
+        { href: "/hr/holidays", label: "Public Holidays", icon: "holidays" },
+        { href: "/hr/reports", label: "Monthly Reports", icon: "myreports" },
+      ],
+    },
+    settings,
+  ];
   const sections: NavSection[] =
     role === "INDIVIDUAL"
       ? [myWork, attendanceHr, settings]
       : role === "ADMIN"
         ? [myWork, attendanceHr, team, workspaceNav, settings]
-        : [team, myWork, attendanceHr, workspaceNav, settings];
+        : superAdminSections;
+  const homeHref = role === "SUPER_ADMIN" ? "/dashboard" : "/my-day";
   const switcher = <WorkspaceSwitcher workspaces={workspaces} activeId={active?.id ?? null} />;
   const name = displayName({ full_name: session.profile.fullName, email: session.profile.email });
+  const roleLabel = ROLE_LABELS[session.profile.role];
 
   return (
-    <div className="flex min-h-svh flex-1">
-      <Sidebar sections={sections} workspaceSwitcher={switcher} />
+    <div className="flex min-h-svh flex-1 bg-background">
+      <Sidebar sections={sections} workspaceSwitcher={switcher} roleLabel={roleLabel} homeHref={homeHref} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur sm:px-6">
-          <MobileNav sections={sections} workspaceSwitcher={switcher} />
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border/80 bg-card/85 px-4 backdrop-blur-md supports-backdrop-filter:bg-card/75 sm:px-6 lg:px-8">
+          <MobileNav sections={sections} workspaceSwitcher={switcher} roleLabel={roleLabel} homeHref={homeHref} />
           <SearchBox />
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
             <NotificationsMenu items={notifications.list} unread={notifications.unread} />
-            <UserMenu
-              name={name}
-              email={session.profile.email}
-              roleLabel={ROLE_LABELS[session.profile.role]}
-              userId={session.user.id}
-            />
+            <UserMenu name={name} email={session.profile.email} roleLabel={roleLabel} userId={session.user.id} />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">{children}</main>
+        <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
       </div>
     </div>
   );
@@ -146,13 +178,13 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
 export function ShellSkeleton() {
   return (
-    <div className="flex min-h-svh flex-1" aria-busy="true">
-      <div className="hidden w-60 border-r bg-muted/30 lg:block" />
+    <div className="flex min-h-svh flex-1 bg-background" aria-busy="true">
+      <div className="hidden w-64 border-r border-sidebar-border bg-sidebar lg:block" />
       <div className="flex flex-1 flex-col">
-        <div className="h-14 border-b" />
-        <div className="mx-auto w-full max-w-7xl space-y-4 px-6 py-6">
-          <div className="h-7 w-48 animate-pulse rounded bg-muted" />
-          <div className="h-32 animate-pulse rounded-xl bg-muted/60" />
+        <div className="h-16 border-b border-border/80 bg-card/85" />
+        <div className="mx-auto w-full max-w-[90rem] space-y-4 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <div className="h-8 w-56 animate-pulse rounded-lg bg-muted" />
+          <div className="h-32 animate-pulse rounded-xl bg-muted/70" />
         </div>
       </div>
     </div>

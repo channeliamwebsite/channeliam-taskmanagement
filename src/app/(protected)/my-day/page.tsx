@@ -1,5 +1,6 @@
 import { AlertTriangle, CalendarClock, CheckCircle2, History, ListTodo, Sun } from "lucide-react";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { StatCard } from "@/components/dashboard/widgets";
@@ -30,6 +31,8 @@ function byPriorityThenDue(a: TaskSummary, b: TaskSummary) {
 
 export default async function MyDayPage() {
   const { session, workspace } = await getPageContext();
+  // Super admins have no personal day plan (decided 2026-11-06): they start on the company dashboard.
+  if (session.profile.role === "SUPER_ADMIN") redirect("/dashboard");
   if (!workspace) return <NoWorkspace session={session} />;
 
   const today = workspaceToday(workspace);
@@ -93,7 +96,7 @@ export default async function MyDayPage() {
       <div className="mb-6">
         <MeetingLinksCard
           links={meetingsForPerson(meetings, session.profile.team, today, session.user.id)}
-          canManage={session.profile.role === "SUPER_ADMIN"}
+          canManage={false}
         />
       </div>
 

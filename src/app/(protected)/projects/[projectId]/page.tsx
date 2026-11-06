@@ -1,4 +1,4 @@
-import { CheckSquare } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CheckSquare, CircleDot, History, Layers, ListTodo, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -6,6 +6,8 @@ import { notFound } from "next/navigation";
 import { ActivityFeed } from "@/components/app/activity-feed";
 import { PriorityBadge, ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
+import { StatCard } from "@/components/dashboard/widgets";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DeleteProjectButton, ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { ProjectDeliverables } from "@/components/projects/project-deliverables";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
@@ -19,7 +21,8 @@ import { listClients } from "@/lib/data/clients";
 import { getProject } from "@/lib/data/projects";
 import { listTasks, toTaskRows } from "@/lib/data/tasks";
 import { mayEditProject } from "@/lib/auth/roles";
-import { canCreateProjects, getWorkspaceMembers } from "@/lib/data/workspace";
+import { canCreateProjects, getMyWorkspaces, getWorkspaceMembers } from "@/lib/data/workspace";
+import { statusCounts } from "@/lib/super-admin-overview";
 import { displayName, formatDate, isPriority, isTaskStatus, todayISO, type Priority } from "@/lib/domain";
 
 import { getPageContext } from "../../_components/context";
@@ -88,12 +91,29 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
   const canEdit = mayEditProject(role, userId, project, mayCreate);
   const today = todayISO();
   const rows = toTaskRows(tasks, session);
+  // Summary figures always use the project's full task list (not the filtered view below).
+  const filtersActive = ["assignee", "status", "priority", "q", "startFrom", "startTo", "dueFrom", "dueTo"].some((k) => get(k));
+  const [allTasks, workspaces] = await Promise.all([
+    filtersActive ? listTasks({ workspaceId: project.workspaceId, projectId: project.id }) : Promise.resolve(tasks),
+    getMyWorkspaces(),
+  ]);
+  const counts = statusCounts(allTasks, today);
+  const progress = counts.total ? Math.round((counts.completed / counts.total) * 100) : 0;
+  const workspaceName = workspaces.find((w) => w.id === project.workspaceId)?.name ?? null;
+  const showAccess = session.profile.role !== "INDIVIDUAL";
 
   return (
     <>
       <PageHeader
-        title={project.name}
-        description={project.clientName ? `Client: ${project.clientName}` : undefined}
+        title={
+          <span className="flex flex-wrap items-center gap-2.5">
+            {project.name}
+            <ProjectStatusBadge status={project.status} />
+          </span>
+        }
+        description={[project.clientName ? `Client: ${project.clientName}` : "Internal project", workspaceName ? `Workspace: ${workspaceName}` : null]
+          .filter(Boolean)
+          .join(" · ")}
         actions={
           <>
             <NewTaskButton
@@ -129,78 +149,96 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
           </>
         }
       >
-        <Link href="/projects" className="mb-1 inline-block text-xs text-muted-foreground hover:text-foreground hover:underline">
+        <Link href="/projects" className="mb-2 inline-block text-xs font-medium text-muted-foreground hover:text-foreground hover:underline">
           ← All projects
         </Link>
       </PageHeader>
 
-      <div className="mb-6 grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div>
-          <p className="text-xs text-muted-foreground">Status</p>
-          <ProjectStatusBadge status={project.status} className="mt-1" />
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Priority</p>
-          <PriorityBadge priority={project.priority} className="mt-1" />
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Owner</p>
-          <p className="mt-1 truncate text-sm font-medium">{project.ownerName ?? "—"}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Timeline</p>
-          <p className="mt-1 text-sm">
-            {formatDate(project.startDate)} → {formatDate(project.dueDate)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">
-            Progress · {project.completedTasks}/{project.totalTasks} tasks
-          </p>
-          <div className="mt-2 flex items-center gap-2">
-            <ProgressBar value={project.progress} />
-            <span className="text-xs tabular-nums">{project.progress}%</span>
+      <div className="mb-6 grid gap-3 lg:grid-cols-[minmax(0,20rem)_1fr]">
+        <div className="grid gap-3 rounded-xl border border-border/80 bg-gradient-to-br from-brand-soft/60 to-card p-4 shadow-card">
+          <div className="flex items-end justify-between gap-2">
+            <span>
+              <span className="block text-sm font-medium text-muted-foreground">Progress</span>
+              <span className="text-3xl font-semibold tracking-tight tabular-nums">{progress}%</span>
+            </span>
+            <PriorityBadge priority={project.priority} />
           </div>
+          <ProgressBar value={progress} />
+          <dl className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <dt className="text-muted-foreground">Owner</dt>
+              <dd className="truncate font-medium">{project.ownerName ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Timeline</dt>
+              <dd className="font-medium">
+                {formatDate(project.startDate)} → {formatDate(project.dueDate)}
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <StatCard label="Total tasks" value={counts.total} icon={ListTodo} tone="brand" />
+          <StatCard label="Completed" value={counts.completed} icon={CheckCircle2} tone="success" />
+          <StatCard label="Pending" value={counts.pending} icon={CircleDot} tone="warning" hint={`${counts.inProgress} in progress`} />
+          <StatCard label="Overdue" value={counts.overdue} icon={AlertTriangle} tone={counts.overdue ? "danger" : "default"} />
         </div>
         {project.description ? (
-          <p className="text-sm whitespace-pre-wrap text-muted-foreground sm:col-span-2 lg:col-span-5">{project.description}</p>
+          <p className="rounded-xl border border-border/80 bg-card p-4 text-sm whitespace-pre-wrap text-muted-foreground shadow-card lg:col-span-2">{project.description}</p>
         ) : null}
       </div>
 
-      <Section title="Open deliverables" className="mb-4">
-        <ProjectDeliverables
-          project={{ id: project.id, name: project.name, clientId: project.clientId, clientName: project.clientName }}
-          workspaceId={project.workspaceId}
-          tasks={tasks.filter((t) => !t.parentTaskId && t.status !== "COMPLETED" && t.status !== "CANCELLED")}
-          members={memberOptions}
-          selfOnly={session.permissions.assignTasks ? null : { userId: session.user.id }}
-          canAddSubtask={(t) => session.profile.role !== "INDIVIDUAL" || t.createdBy === session.user.id}
-          limit={15}
-        />
-      </Section>
+      <Tabs defaultValue="tasks">
+        <TabsList className="mb-4">
+          <TabsTrigger value="tasks">Tasks</TabsTrigger>
+          <TabsTrigger value="deliverables">Deliverables</TabsTrigger>
+          {showAccess ? <TabsTrigger value="access">Access</TabsTrigger> : null}
+          <TabsTrigger value="activity">Activity</TabsTrigger>
+        </TabsList>
 
-      <TaskFilters projects={[]} members={memberOptions} showScope={false} showProject={false} showDepartment={false} />
-      {rows.length === 0 ? (
-        <EmptyState
-          icon={CheckSquare}
-          title="No tasks here yet"
-          description={session.permissions.assignTasks ? "Add the first task for this project." : "Tasks you can access will appear here."}
-        />
-      ) : view === "board" ? (
-        <TaskBoard tasks={rows} today={today} />
-      ) : (
-        <TaskList tasks={rows} showProject={false} today={today} />
-      )}
+        <TabsContent value="tasks">
+          <TaskFilters projects={[]} members={memberOptions} showScope={false} showProject={false} showDepartment={false} />
+          {rows.length === 0 ? (
+            <EmptyState
+              icon={CheckSquare}
+              title={filtersActive ? "No tasks match these filters" : "No tasks here yet"}
+              description={session.permissions.assignTasks ? "Add the first task for this project." : "Tasks you can access will appear here."}
+            />
+          ) : view === "board" ? (
+            <TaskBoard tasks={rows} today={today} />
+          ) : (
+            <TaskList tasks={rows} showProject={false} today={today} />
+          )}
+        </TabsContent>
 
-      {session.profile.role !== "INDIVIDUAL" ? (
-        <Section title="Access from other workspaces" className="mt-6">
-          <ProjectAccess projectId={project.id} collaborators={collaborators} candidates={accessCandidates} canManage={isSuperAdmin} />
-        </Section>
-      ) : null}
+        <TabsContent value="deliverables">
+          <Section title="Open deliverables" icon={Layers} description="Main tasks still open, with their subtasks">
+            <ProjectDeliverables
+              project={{ id: project.id, name: project.name, clientId: project.clientId, clientName: project.clientName }}
+              workspaceId={project.workspaceId}
+              tasks={allTasks.filter((t) => !t.parentTaskId && t.status !== "COMPLETED" && t.status !== "CANCELLED")}
+              members={memberOptions}
+              selfOnly={session.permissions.assignTasks ? null : { userId: session.user.id }}
+              canAddSubtask={(t) => session.profile.role !== "INDIVIDUAL" || t.createdBy === session.user.id}
+              limit={15}
+            />
+          </Section>
+        </TabsContent>
 
-      <Section title="Recent project activity" className="mt-6">
-        <ActivityFeed items={activity} names={names} />
-      </Section>
+        {showAccess ? (
+          <TabsContent value="access">
+            <Section title="Access from other workspaces" icon={Users}>
+              <ProjectAccess projectId={project.id} collaborators={collaborators} candidates={accessCandidates} canManage={isSuperAdmin} />
+            </Section>
+          </TabsContent>
+        ) : null}
+
+        <TabsContent value="activity">
+          <Section title="Recent project activity" icon={History}>
+            <ActivityFeed items={activity} names={names} />
+          </Section>
+        </TabsContent>
+      </Tabs>
     </>
   );
 }

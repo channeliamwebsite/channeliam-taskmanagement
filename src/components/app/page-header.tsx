@@ -15,11 +15,11 @@ export function PageHeader({
   children?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between lg:mb-8">
       <div className="min-w-0">
         {children}
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
-        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-[1.75rem] sm:leading-tight">{title}</h1>
+        {description ? <p className="mt-1.5 text-sm text-muted-foreground sm:text-[15px]">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -61,19 +61,34 @@ export function Section({
   action,
   children,
   className,
+  icon: Icon,
+  description,
+  id,
 }: {
   title: string;
   action?: ReactNode;
   children: ReactNode;
   className?: string;
+  icon?: LucideIcon;
+  description?: ReactNode;
+  id?: string;
 }) {
   return (
-    <section className={cn("rounded-xl border bg-card", className)}>
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {action}
+    <section id={id} className={cn("scroll-mt-24 rounded-xl border border-border/80 bg-card shadow-card", className)}>
+      <div className="flex items-start justify-between gap-3 border-b border-border/70 px-4 py-3.5 sm:px-5">
+        <div className="flex min-w-0 items-start gap-2.5">
+          {Icon ? <Icon className="mt-0.5 size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+          <div className="min-w-0">
+            <h2 className="text-[15px] leading-snug font-semibold tracking-tight">{title}</h2>
+            {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
+          </div>
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }
+
+/** Red "View all →" style link for section headers. */
+export const sectionLinkClass = "inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline";

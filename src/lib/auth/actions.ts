@@ -2,7 +2,10 @@
 
 import { redirect } from "next/navigation";
 
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+
 import { createClient } from "@/lib/supabase/server";
+import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 import { RESET_REQUESTED, confirmRedirect, resetRequestError } from "./email-links";
 import { appOrigin } from "./origin";
@@ -107,7 +110,15 @@ export async function requestPasswordReset(_prev: ResetRequestState, formData: F
   const fieldError = validateLogin(email, "-").email;
   if (fieldError) return { fieldError, email };
 
-  const supabase = await createClient();
+  // Not the cookie (PKCE) client: a PKCE link only works in the browser that
+  // asked for it. This client sends a link that works on any device: with the
+  // repository's recovery.html template it is /auth/confirm?token_hash=...&type=recovery
+  // (verified on the server); with Supabase's default template the session
+  // arrives in the URL fragment and /auth/callback finishes it. Anon key only;
+  // nothing is stored.
+  const supabase = createSupabaseClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+    auth: { flowType: "implicit", persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: confirmRedirect(await appOrigin()) });
   const message = resetRequestError(error);
   if (message) return { error: message, email };

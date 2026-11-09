@@ -27,6 +27,20 @@ export const PROTECTED_ROUTES = [
 // /auth/callback finishes links whose session is in the URL fragment (browser only).
 export const NEUTRAL_ROUTES = ["/auth/signout", "/auth/confirm", "/auth/callback"] as const;
 
+/**
+ * Supabase falls back to the Site URL ("/") when it cannot use the requested
+ * redirect, and same-browser (?code=) or failed links carry their details in
+ * the query string. Those must reach /auth/confirm untouched; otherwise the
+ * sign-in redirect drops the query and the person sees the plain login form.
+ * Returns the /auth/confirm URL (path + query) or null.
+ */
+export function authLinkRedirect(pathname: string, search: string): string | null {
+  if (pathname !== "/" && pathname !== LOGIN_ROUTE) return null;
+  const params = new URLSearchParams(search);
+  if (!["code", "token_hash", "error_code"].some((k) => params.has(k))) return null;
+  return `/auth/confirm?${params.toString()}`;
+}
+
 function matches(pathname: string, route: string) {
   return pathname === route || pathname.startsWith(`${route}/`);
 }

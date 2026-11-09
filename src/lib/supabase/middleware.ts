@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   DEFAULT_AUTHENTICATED_ROUTE,
+  authLinkRedirect,
   LOGIN_ROUTE,
   isPublicRoute,
   requiresAuth,
@@ -47,6 +48,11 @@ export async function updateSession(request: NextRequest) {
   const isAuthenticated = Boolean(data?.claims?.sub);
 
   const { pathname, search } = request.nextUrl;
+
+  // Invitation / reset links that landed on the Site URL or /login: keep their
+  // query and finish them at /auth/confirm (signed in or out).
+  const linkTarget = authLinkRedirect(pathname, search);
+  if (linkTarget) return redirectWithCookies(new URL(linkTarget, request.nextUrl.origin), response);
 
   if (!isAuthenticated && requiresAuth(pathname)) {
     const url = request.nextUrl.clone();

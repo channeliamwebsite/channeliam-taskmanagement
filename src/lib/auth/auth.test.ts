@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { getPermissions, hasMinimumRole, hasRole, isRole, mayCreateClients, mayCreateProjects, mayEditProject, ROUTE_ROLES } from "./roles.ts";
-import { DEFAULT_AUTHENTICATED_ROUTE, isPublicRoute, requiresAuth, safeRedirectPath } from "./routes.ts";
+import { DEFAULT_AUTHENTICATED_ROUTE, authLinkRedirect, isPublicRoute, requiresAuth, safeRedirectPath } from "./routes.ts";
 import { validateLogin, validateNewPassword } from "./validation.ts";
 
 describe("route protection", () => {
@@ -126,5 +126,22 @@ describe("login validation", () => {
     assert.ok(validateLogin("person@agency.example", "").password);
     assert.ok(validateLogin("person@agency.example", "12345").password);
     assert.ok(validateLogin("person@agency.example", "x".repeat(73)).password);
+  });
+});
+
+describe("authLinkRedirect (Site URL fallback)", () => {
+  it("sends a recovery code on / to /auth/confirm with the query", () => {
+    assert.equal(authLinkRedirect("/", "?code=abc"), "/auth/confirm?code=abc");
+  });
+  it("keeps token hash and type", () => {
+    assert.equal(authLinkRedirect("/", "?token_hash=t&type=recovery"), "/auth/confirm?token_hash=t&type=recovery");
+  });
+  it("forwards Supabase errors from /login", () => {
+    assert.equal(authLinkRedirect("/login", "?error=access_denied&error_code=otp_expired"), "/auth/confirm?error=access_denied&error_code=otp_expired");
+  });
+  it("ignores ordinary pages and queries", () => {
+    assert.equal(authLinkRedirect("/", ""), null);
+    assert.equal(authLinkRedirect("/login", "?next=%2Ftasks"), null);
+    assert.equal(authLinkRedirect("/tasks", "?code=abc"), null);
   });
 });

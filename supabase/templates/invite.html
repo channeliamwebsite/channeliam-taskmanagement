@@ -1,12 +1,71 @@
 <!--
-  Supabase Auth "Invite user" email. In production, paste this into
-  Authentication -> Email Templates -> Invite user (and set Site URL to the app URL).
-  The link goes to the app's /auth/confirm route, which verifies the one-time
-  token on the server and then asks the employee to choose a password.
+  Supabase Auth "Invite user" email (Authentication -> Email Templates -> Invite user).
+  Subject: You're invited to Channeliam TaskManager
+  Link: {{ .ConfirmationURL }} (Supabase verifies it, then /auth/confirm or /auth/callback
+  opens "Create your password"; both link styles are handled by the app).
+  Brand colours from the Channeliam logo: #D92232 primary red, #B5172A dark red, #FDF2F3 tint.
+  Logo: PNG of the official mark, served by the app (Outlook does not show WebP).
 -->
-<h2>You're invited to Channeliam Task Management</h2>
-<p>An administrator has created an account for you.</p>
-<p>
-  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite">Accept the invitation and set your password</a>
-</p>
-<p>This link can be used once. If it has expired, ask your administrator to send a new invitation.</p>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>You're invited to Channeliam TaskManager</title>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#1f2328;">
+        <tr><td style="height:4px;background:#D92232;font-size:0;line-height:0;">&nbsp;</td></tr>
+        <tr>
+          <td style="padding:28px 4px 8px;">
+            <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;font-weight:700;color:#B5172A;">You're invited to Channeliam TaskManager</h1>
+            <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hello,</p>
+            <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">An administrator has created a TaskManager account for <strong>{{ .Email }}</strong>. Create your own password to get started &mdash; nobody else will see or set it.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 4px 20px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td align="center" bgcolor="#D92232" style="border-radius:8px;">
+                  <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:13px 26px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">Create your password</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 4px 24px;">
+            <p style="margin:0;padding:12px 14px;background:#FDF2F3;border-left:3px solid #D92232;font-size:13px;line-height:1.6;color:#5c2a30;">This link works once and expires after a limited time. If it has expired, ask your administrator to send a new invitation.</p>
+          </td>
+        </tr>
+        <tr><td style="border-top:1px solid #eeeeee;font-size:0;line-height:0;">&nbsp;</td></tr>
+        <tr>
+          <td style="padding:20px 4px 4px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td valign="top" style="padding-right:14px;">
+                  <img src="https://taskmanager.likesandshares.com/email/channeliam-logo.png" width="48" height="48" alt="Channeliam" style="display:block;border:0;width:48px;height:48px;">
+                </td>
+                <td valign="top" style="font-size:13px;line-height:1.6;color:#4b5563;">
+                  Regards,<br>
+                  <strong style="color:#1f2328;">Channeliam TaskManager Team</strong><br>
+                  <a href="https://channeliam.com" style="color:#D92232;text-decoration:none;">Channeliam.com</a> | Likes &amp; Shares Pvt Ltd
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:18px 4px 0;font-size:11px;line-height:1.5;color:#9ca3af;">You received this email because an account was created for you in Channeliam TaskManager. If you did not expect it, you can ignore this email.</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

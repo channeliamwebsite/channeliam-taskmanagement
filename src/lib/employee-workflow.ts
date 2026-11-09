@@ -110,9 +110,15 @@ export async function addEmployee(
   // be in the person's inbox. Report what is missing instead; the Employees
   // page can finish the setup.
   const done = [delivery === "email" ? "Account created and invitation email sent" : "Account created with an invite link"];
-  const membershipError = await deps.addMembership(userId);
-  if (membershipError) return { status: "partial", userId, done, failed: `Workspace access: ${membershipError}`, link };
-  done.push("Added to the workspace");
+  // Super Admin is a company-wide role (access to every workspace without
+  // membership, migration 025): only Admins and Individuals join the workspace.
+  if (input.role === "SUPER_ADMIN") {
+    done.push("Company-wide access as Super Admin (no workspace membership)");
+  } else {
+    const membershipError = await deps.addMembership(userId);
+    if (membershipError) return { status: "partial", userId, done, failed: `Workspace access: ${membershipError}`, link };
+    done.push("Added to the workspace");
+  }
   const profileError = await deps.applyProfile(userId, input);
   if (profileError) return { status: "partial", userId, done, failed: `Employee details: ${profileError}`, link };
 

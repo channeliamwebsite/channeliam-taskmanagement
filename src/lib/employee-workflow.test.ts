@@ -46,6 +46,21 @@ describe("validateEmployeeInput", () => {
 });
 
 describe("addEmployee", () => {
+  it("does not add a workspace membership for a new Super Admin (company-wide role)", async () => {
+    const { d, calls } = deps();
+    const r = await addEmployee(d, { ...input, role: "SUPER_ADMIN" }, { delivery: "email" });
+    assert.equal(r.status, "created");
+    assert.deepEqual(calls, ["find", "invite", "profile"]);
+  });
+
+  it("still adds the membership for new Admins and Individuals", async () => {
+    for (const role of ["ADMIN", "INDIVIDUAL"] as const) {
+      const { d, calls } = deps();
+      await addEmployee(d, { ...input, role }, { delivery: "link" });
+      assert.deepEqual(calls, ["find", "link", "membership", "profile"]);
+    }
+  });
+
   it("invites by email, then adds the membership and details", async () => {
     const { d, calls } = deps();
     assert.deepEqual(await addEmployee(d, input, { delivery: "email" }), { status: "created", userId: "u-new", delivery: "email" });

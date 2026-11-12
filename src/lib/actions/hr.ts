@@ -1,9 +1,11 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { after } from "next/server";
 
 import { isIsoDate, validateLeaveInput, type LeaveInput } from "@/lib/hr/leave";
 
+import { notifyLeaveDecided, notifyLeaveRequested } from "./leave-email";
 import { NOT_PERMITTED, dbError, fail, getActor, isUuid, ok, type ActionResult } from "./shared";
 
 // Leave and public holidays (034). Every rule is enforced in the database
@@ -34,9 +36,13 @@ export async function applyForLeave(input: Partial<Record<keyof LeaveInput, unkn
   if (!parsed.ok) return fail(parsed.error);
   const v = parsed.value;
   // The applicant is always the signed-in user (auth.uid() in the database); no user id is sent.
-  const { error } = await actor.supabase.rpc("hr_apply_leave", { p_type: v.type, p_start: v.start, p_end: v.end, p_reason: v.reason });
+  const { data: applicationId, error } = await actor.supabase.rpc("hr_apply_leave", { p_type: v.type, p_start: v.start, p_end: v.end, p_reason: v.reason });
   if (error) return fail(dbError(error, "Could not submit the application. Please try again."));
   refresh();
+  // after(): runs once the response is sent, but still guaranteed to finish on the server
+  // (unlike a bare un-awaited promise, which a serverless platform can cut off). The
+  // application is already saved, so this never blocks or fails the submission.
+  if (applicationId) after(() => notifyLeaveRequested(actor, applicationId).catch((e) => console.error("[leave-email] requested notify threw", e)));
   return ok();
 }
 
@@ -62,6 +68,7 @@ export async function decideLeave(id: string, approve: boolean, rejectionReason?
   });
   if (error) return fail(dbError(error, "Could not record the decision."));
   refresh();
+  after(() => notifyLeaveDecided(actor, id, approve).catch((e) => console.error("[leave-email] decided notify threw", e)));
   return ok();
 }
 

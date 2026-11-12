@@ -704,6 +704,42 @@ export type Database = {
           },
         ]
       }
+      hr_leave_email_log: {
+        Row: {
+          application_id: string
+          created_at: string
+          email_type: string
+          error: string | null
+          id: string
+          status: string
+        }
+        ComputedFields: never
+        Insert: {
+          application_id: string
+          created_at?: string
+          email_type: string
+          error?: string | null
+          id?: string
+          status: string
+        }
+        Update: {
+          application_id?: string
+          created_at?: string
+          email_type?: string
+          error?: string | null
+          id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_email_log_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "hr_leave_applications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_leave_policies: {
         Row: {
           annual_allowance: number | null

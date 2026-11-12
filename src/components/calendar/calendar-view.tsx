@@ -1,15 +1,29 @@
 "use client";
 
 import { CalendarClock, Flag, Plus, Video } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState } from "react";
 
 import { PriorityBadge } from "@/components/app/badges";
 import type { MemberOption } from "@/components/tasks/assignee-picker";
-import { TaskFormDialog, type ProjectOption } from "@/components/tasks/task-form-dialog";
+import type { ProjectOption } from "@/components/tasks/task-form-dialog";
 import { TASK_STATUS_DOT, TASK_STATUS_LABELS, formatDate, type Priority, type TaskStatus } from "@/lib/domain";
 import type { MeetingOnDay } from "@/lib/meetings";
 import { cn } from "@/lib/utils";
+
+// Only ever rendered after a day cell is clicked (createFor !== null), never on
+// first paint — code-split out of the calendar's own bundle rather than shipped
+// unconditionally to every visitor. No ssr:false: the dialog is already absent
+// from the server-rendered output whenever createFor is null (its default), so
+// there's nothing server-rendering it would need to skip.
+const TaskFormDialog = dynamic(() => import("@/components/tasks/task-form-dialog").then((m) => m.TaskFormDialog), {
+  loading: () => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" role="status" aria-live="polite">
+      <span className="rounded-lg border bg-card px-4 py-2 text-sm shadow-lg">Loading…</span>
+    </div>
+  ),
+});
 
 export type CalendarItem = {
   id: string;

@@ -6,13 +6,18 @@ import { requireRole, requireSession, type Session } from "@/lib/auth/dal";
 import type { UserRole } from "@/lib/auth/roles";
 import { getActiveWorkspace, type Workspace } from "@/lib/data/workspace";
 
-/** Session + active workspace for a page. */
+/**
+ * Session + active workspace for a page. The two are independent — workspace
+ * selection reads its own auth cookie and RLS-scoped query, it never depends
+ * on the resolved session — so they run concurrently. If the session check
+ * redirects (signed out, inactive, wrong role), that redirect still propagates
+ * normally out of Promise.all.
+ */
 export async function getPageContext(roles?: readonly UserRole[]): Promise<{
   session: Session;
   workspace: Workspace | null;
 }> {
-  const session = roles ? await requireRole(roles) : await requireSession();
-  const workspace = await getActiveWorkspace();
+  const [session, workspace] = await Promise.all([roles ? requireRole(roles) : requireSession(), getActiveWorkspace()]);
   return { session, workspace };
 }
 

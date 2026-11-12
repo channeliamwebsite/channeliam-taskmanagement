@@ -1,14 +1,16 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { PageHeader } from "@/components/app/page-header";
 import { CalendarView, type CalendarItem } from "@/components/calendar/calendar-view";
 import { CalendarFilters } from "@/components/calendar/calendar-filters";
+import type { Session } from "@/lib/auth/dal";
 import { listClientOptions } from "@/lib/data/clients";
 import { listProjectOptions } from "@/lib/data/projects";
 import { listTasks } from "@/lib/data/tasks";
-import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { getWorkspaceMembers, workspaceToday, type Workspace } from "@/lib/data/workspace";
 import { addDaysISO, displayName, formatDate, isOverdue, isPriority, isTaskStatus, weekdayOf } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +31,18 @@ function weekStart(date: string) {
   return addDaysISO(date, -((weekdayOf(date) + 6) % 7));
 }
 
+/** Query-param-derived filters, resolved synchronously from searchParams — needed by both the nav shell and the async calendar data below it. */
+type CalendarFilterParams = {
+  isAdmin: boolean;
+  scope: "mine" | "all";
+  client?: string;
+  project?: string;
+  priority?: string;
+  status?: string;
+  employee?: string;
+  dept?: string;
+};
+
 export default async function CalendarPage({ searchParams }: PageProps<"/calendar">) {
   const { session, workspace } = await getPageContext();
   if (!workspace) return <NoWorkspace session={session} />;
@@ -39,13 +53,16 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
   const view = get("view") === "week" ? "week" : get("view") === "day" ? "day" : "month";
   const anchor = DATE_RE.test(get("date") ?? "") ? get("date")! : today;
   const isAdmin = session.profile.role !== "INDIVIDUAL";
-  const scope = isAdmin && get("scope") === "all" ? "all" : "mine";
-  const client = get("client");
-  const project = get("project");
-  const priority = get("priority");
-  const status = get("status");
-  const employee = isAdmin && UUID.test(get("employee") ?? "") ? get("employee")! : undefined;
-  const dept = isAdmin ? get("dept") : undefined;
+  const filters: CalendarFilterParams = {
+    isAdmin,
+    scope: isAdmin && get("scope") === "all" ? "all" : "mine",
+    client: get("client"),
+    project: get("project"),
+    priority: get("priority"),
+    status: get("status"),
+    employee: isAdmin && UUID.test(get("employee") ?? "") ? get("employee")! : undefined,
+    dept: isAdmin ? get("dept") : undefined,
+  };
 
   let days: string[];
   let prev: string;
@@ -70,6 +87,82 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     next = addDaysISO(anchor, 1);
     label = new Date(`${anchor}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   }
+
+  const base = new URLSearchParams();
+  for (const k of ["scope", "client", "project", "priority", "status", "employee", "dept"]) {
+    const v = get(k);
+    if (v) base.set(k, v);
+  }
+  const href = (patch: Record<string, string>) => {
+    const p = new URLSearchParams(base);
+    p.set("view", view);
+    for (const [k, v] of Object.entries(patch)) p.set(k, v);
+    return `/calendar?${p.toString()}`;
+  };
+
+  return (
+    <>
+      <PageHeader title="Calendar" description="Scheduled and due dates for the same tasks shown in My Day, lists and boards." />
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Link href={href({ date: prev })} className="inline-flex size-8 items-center justify-center rounded-lg border hover:bg-muted" aria-label="Previous">
+          <ChevronLeft className="size-4" />
+        </Link>
+        <Link href={href({ date: next })} className="inline-flex size-8 items-center justify-center rounded-lg border hover:bg-muted" aria-label="Next">
+          <ChevronRight className="size-4" />
+        </Link>
+        <Link href={href({ date: today })} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-muted">
+          Today
+        </Link>
+        <h2 className="text-base font-semibold">{label}</h2>
+        <div className="ml-auto inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs font-medium" role="tablist" aria-label="Calendar view">
+          {(["month", "week", "day"] as const).map((v) => {
+            const p = new URLSearchParams(base);
+            p.set("view", v);
+            p.set("date", anchor);
+            return (
+              <Link
+                key={v}
+                href={`/calendar?${p.toString()}`}
+                role="tab"
+                aria-selected={view === v}
+                className={cn("rounded-md px-2.5 py-1 capitalize", view === v ? "bg-background shadow-xs" : "text-muted-foreground")}
+              >
+                {v}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+      {/* Everything below needs the project/member/client-option and task queries;
+          isolating it in its own Suspense boundary lets the header and nav shell
+          above (session + searchParams only, no slow queries) paint immediately
+          instead of waiting on this data. */}
+      <Suspense key={`${view}-${anchor}-${JSON.stringify(filters)}`} fallback={<CalendarSkeleton view={view} days={days} />}>
+        <CalendarData session={session} workspace={workspace} today={today} view={view} days={days} anchor={anchor} filters={filters} />
+      </Suspense>
+    </>
+  );
+}
+
+/** The data-dependent half of the page: filters + the calendar grid itself. */
+async function CalendarData({
+  session,
+  workspace,
+  today,
+  view,
+  days,
+  anchor,
+  filters,
+}: {
+  session: Session;
+  workspace: Workspace;
+  today: string;
+  view: "month" | "week" | "day";
+  days: string[];
+  anchor: string;
+  filters: CalendarFilterParams;
+}) {
+  const { scope, client, project, priority, status, employee, dept } = filters;
 
   // The calendar shows tasks only (decided 2026-11-06): meetings live on
   // Team Today (super admins) and My Day (admins and individuals).
@@ -130,53 +223,10 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     ...new Map(projects.filter((p) => p.clientId && p.clientName).map((p) => [p.clientId!, p.clientName!])).entries(),
   ].map(([id, name]) => ({ id, name }));
 
-  const base = new URLSearchParams();
-  for (const k of ["scope", "client", "project", "priority", "status", "employee", "dept"]) {
-    const v = get(k);
-    if (v) base.set(k, v);
-  }
-  const href = (patch: Record<string, string>) => {
-    const p = new URLSearchParams(base);
-    p.set("view", view);
-    for (const [k, v] of Object.entries(patch)) p.set(k, v);
-    return `/calendar?${p.toString()}`;
-  };
-
   return (
     <>
-      <PageHeader title="Calendar" description="Scheduled and due dates for the same tasks shown in My Day, lists and boards." />
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Link href={href({ date: prev })} className="inline-flex size-8 items-center justify-center rounded-lg border hover:bg-muted" aria-label="Previous">
-          <ChevronLeft className="size-4" />
-        </Link>
-        <Link href={href({ date: next })} className="inline-flex size-8 items-center justify-center rounded-lg border hover:bg-muted" aria-label="Next">
-          <ChevronRight className="size-4" />
-        </Link>
-        <Link href={href({ date: today })} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-muted">
-          Today
-        </Link>
-        <h2 className="text-base font-semibold">{label}</h2>
-        <div className="ml-auto inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs font-medium" role="tablist" aria-label="Calendar view">
-          {(["month", "week", "day"] as const).map((v) => {
-            const p = new URLSearchParams(base);
-            p.set("view", v);
-            p.set("date", anchor);
-            return (
-              <Link
-                key={v}
-                href={`/calendar?${p.toString()}`}
-                role="tab"
-                aria-selected={view === v}
-                className={cn("rounded-md px-2.5 py-1 capitalize", view === v ? "bg-background shadow-xs" : "text-muted-foreground")}
-              >
-                {v}
-              </Link>
-            );
-          })}
-        </div>
-      </div>
       <CalendarFilters
-        isAdmin={isAdmin}
+        isAdmin={filters.isAdmin}
         clients={clients}
         projects={projects}
         employees={memberOptions.filter((m) => m.isActive).sort((a, b) => a.name.localeCompare(b.name))}
@@ -197,3 +247,40 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     </>
   );
 }
+
+/** Matches CalendarFilters' + CalendarView's layout closely enough to avoid a layout shift when the real content streams in. */
+function CalendarSkeleton({ view, days }: { view: "month" | "week" | "day"; days: string[] }) {
+  const cellHeight = view === "month" ? "min-h-28" : "min-h-64";
+  return (
+    <div aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading calendar…</span>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="h-9 w-32 max-w-[45%] animate-pulse rounded-lg bg-muted sm:max-w-none" />
+        ))}
+      </div>
+      <div className="overflow-hidden rounded-xl border bg-card">
+        {view === "day" ? (
+          <div className={cn("border-l p-1.5", cellHeight)}>
+            <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-7 border-l">
+            {view === "month"
+              ? WEEKDAY_LABELS.map((d) => <div key={d} className="border-r border-b bg-muted/40 px-2 py-1.5 text-xs font-medium text-muted-foreground">{d}</div>)
+              : null}
+            {days.map((d) => (
+              <div key={d} className={cn("border-r border-b p-1.5", cellHeight)}>
+                <div className="mb-1 h-4 w-6 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-5/6 animate-pulse rounded bg-muted/60" />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="mt-2 h-4 w-48 animate-pulse rounded bg-muted/60" />
+    </div>
+  );
+}
+
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

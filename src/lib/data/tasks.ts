@@ -146,6 +146,8 @@ export type TaskFilters = {
   projectId?: string;
   projectIds?: string[];
   assigneeId?: string;
+  /** Tasks where this user assigned at least one assignee (delegated work, regardless of who created the task). */
+  assignedByMe?: string;
   createdBy?: string;
   status?: TaskStatus;
   priority?: Priority;

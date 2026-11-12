@@ -9,7 +9,7 @@ import { listClientOptions } from "@/lib/data/clients";
 import { listHolidays } from "@/lib/data/hr";
 import { listMeetingRecords } from "@/lib/data/meeting-records";
 import { listMeetingLinks } from "@/lib/data/meetings";
-import { listTasks } from "@/lib/data/tasks";
+import { getTaskTitles, listTasks } from "@/lib/data/tasks";
 import { listProjectOptions } from "@/lib/data/projects";
 import { loadTeamToday } from "@/lib/data/team-today-data";
 import { displayName, formatDate, isWorkingDay } from "@/lib/domain";
@@ -28,23 +28,27 @@ export default async function TeamTodayPage() {
   // working days (not weekly offs or public holidays).
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const today = workspaceToday(workspace);
-  const [data, projects, clientOptions, meetingLinks, holidays, meetingRecords, tasks] = await Promise.all([
+  const [data, projects, clientOptions, meetingLinks, holidays, meetingRecords, openTasks] = await Promise.all([
     loadTeamToday(session, workspace),
     listProjectOptions(workspace.id),
     listClientOptions(workspace.id),
     isSuperAdmin ? listMeetingLinks(workspace.id, { activeOnly: true }) : Promise.resolve([]),
     isSuperAdmin ? listHolidays(today, today) : Promise.resolve([]),
     isSuperAdmin ? listMeetingRecords(workspace.id, today, today) : Promise.resolve({ available: false, records: [] }),
-    // Follow-up task options for meeting notes (same list the dashboard used).
-    isSuperAdmin ? listTasks({ workspaceId: workspace.id }) : Promise.resolve([]),
+    // Follow-up task picker for meeting notes: open tasks only (same result as
+    // the previous fetch-everything-then-filter-to-open, just scoped in the query).
+    isSuperAdmin ? listTasks({ workspaceId: workspace.id, openOnly: true }) : Promise.resolve([]),
   ]);
   const workingDay = isWorkingDay(today) && holidays.length === 0;
-  const taskOptions = tasks
-    .filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED")
+  const taskOptions = openTasks
     .map((t) => ({ id: t.id, title: t.title }))
     .sort((a, b) => a.title.localeCompare(b.title))
     .slice(0, 300);
-  const taskTitles = new Map(tasks.map((t) => [t.id, t.title]));
+  // Titles for already-recorded follow-up tasks (today's meeting records only),
+  // which may include tasks completed since — looked up by id instead of
+  // pulling in every task in the workspace just for their titles.
+  const followUpIds = [...new Set(meetingRecords.records.flatMap((r) => r.followUpTaskIds))];
+  const taskTitles = followUpIds.length ? await getTaskTitles(followUpIds) : new Map<string, string>();
   const memberOptions = data.members.map((m) => ({
     userId: m.userId,
     name: displayName({ full_name: m.fullName, email: m.email }),

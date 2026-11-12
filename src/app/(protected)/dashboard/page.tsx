@@ -42,6 +42,7 @@ import { loadError } from "@/lib/data/errors";
 import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
+import { uniqueById } from "@/lib/task-query";
 import { canCreateProjects, getMyWorkspaces, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
 import { BUSINESS_TIMEZONE, PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue, todayISO } from "@/lib/domain";
 import { buildRangeReport } from "@/lib/data/hr-month";
@@ -82,6 +83,32 @@ function parseRange(from: unknown, to: unknown): DateRange | null {
   return a <= b ? { from: a, to: b } : { from: b, to: a };
 }
 
+/**
+ * Individual: only their own tasks, every status and date — My Day and this
+ * dashboard's "my projects" rely on the person's full task history, not just
+ * what's open today (same scope as my-day/page.tsx).
+ */
+function individualTaskScope(workspaceId: string, userId: string) {
+  return listTasks({ workspaceId, assigneeId: userId });
+}
+
+/**
+ * Admin: everything the dashboard's "my work" and "handed out" lists can
+ * possibly need — open tasks assigned to me, created by me, or delegated by
+ * me to someone else — instead of every task in the workspace. The three
+ * lists are still computed exactly as before in AdminDashboard; this only
+ * narrows what's fetched to their union (completed/cancelled tasks are never
+ * used by any of the three).
+ */
+async function adminTaskScope(workspaceId: string, userId: string): Promise<TaskSummary[]> {
+  const [assignedToMe, createdByMe, assignedByMe] = await Promise.all([
+    listTasks({ workspaceId, assigneeId: userId, openOnly: true }),
+    listTasks({ workspaceId, createdBy: userId, openOnly: true }),
+    listTasks({ workspaceId, assignedByMe: userId, openOnly: true }),
+  ]);
+  return uniqueById([...assignedToMe, ...createdByMe, ...assignedByMe]);
+}
+
 export default async function DashboardPage({ searchParams }: PageProps<"/dashboard">) {
   const { session, workspace } = await getPageContext();
   if (!workspace) return <NoWorkspace session={session} />;
@@ -89,8 +116,15 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const isAdmin = session.profile.role === "ADMIN";
   const isIndividual = session.profile.role === "INDIVIDUAL";
-  const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients] = await Promise.all([
-    listTasks({ workspaceId: workspace.id }),
+  const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients, workspaces] = await Promise.all([
+    // Super admin: company-wide (unchanged) — the dashboard's company-wide
+    // figures need every task. Admin / Individual: scoped to what their own
+    // dashboard view can show (see the two helpers above).
+    isSuperAdmin
+      ? listTasks({ workspaceId: workspace.id })
+      : isAdmin
+        ? adminTaskScope(workspace.id, session.user.id)
+        : individualTaskScope(workspace.id, session.user.id),
     listProjects(workspace.id),
     getWorkspaceMembers(workspace.id),
     isAdmin ? loadTeamToday(session, workspace) : Promise.resolve(null),
@@ -103,6 +137,9 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
     isAdmin ? canCreateProjects(workspace.id, session.user.id, session.profile.role) : Promise.resolve(false),
     // RLS-scoped to the active workspace, so the picker lists only clients the admin can attach a project to.
     isAdmin ? listClients(workspace.id) : Promise.resolve([]),
+    // Workspace switcher (super admins only); independent of everything else above, so it's fetched here
+    // rather than in its own later await (was previously an unforced extra sequential round trip).
+    isSuperAdmin ? getMyWorkspaces() : Promise.resolve([]),
   ]);
 
   const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
@@ -114,7 +151,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
     const range = parseRange(params.from, params.to);
     // Today's attendance from the same source and rules as /hr (company-wide, India time).
     const attendanceDay = todayISO(new Date(), BUSINESS_TIMEZONE);
-    const workspaces = await getMyWorkspaces();
     const [attendanceReport, pendingLeave] = await Promise.all([
       buildRangeReport(attendanceDay, attendanceDay),
       // Same query as HR → Leave Applications (pending, this year).

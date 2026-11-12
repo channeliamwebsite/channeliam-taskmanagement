@@ -129,8 +129,15 @@ describe("assigneeFilters (database-side join instead of id lists)", () => {
     assert.deepEqual(f.conditions.map((c) => c.column), ["fa.user_id", "fd.user_id"]);
   });
 
+  it("filters by who assigned the work, through its own inner-joined alias", () => {
+    const f = assigneeFilters({ assignedByMe: "u1" });
+    assert.equal(f.embeds.length, 1);
+    assert.match(f.embeds[0], /^fb:task_assignees!task_assignees_task_id_fkey!inner\(assigned_by\)$/);
+    assert.deepEqual(f.conditions, [{ column: "fb.assigned_by", op: "eq", value: "u1" }]);
+  });
+
   it("never filters the displayed `assignees` embed", () => {
-    const f = assigneeFilters({ assigneeId: "u1", assigneeIds: ["u2"] });
+    const f = assigneeFilters({ assigneeId: "u1", assigneeIds: ["u2"], assignedByMe: "u3" });
     assert.ok(f.conditions.every((c) => !c.column.startsWith("assignees.")));
   });
 });

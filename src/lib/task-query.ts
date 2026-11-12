@@ -108,7 +108,7 @@ export function taskOrder(sort: TaskSort = "updated"): { column: string; options
  * narrows the `assignees` embed shown in the UI. A task matches once however
  * many of its assignees match.
  */
-export function assigneeFilters(filters: { assigneeId?: string; assigneeIds?: string[] }) {
+export function assigneeFilters(filters: { assigneeId?: string; assigneeIds?: string[]; assignedByMe?: string }) {
   const embeds: string[] = [];
   const conditions: { column: string; op: "eq" | "in"; value: string | string[] }[] = [];
   if (filters.assigneeId) {
@@ -118,6 +118,10 @@ export function assigneeFilters(filters: { assigneeId?: string; assigneeIds?: st
   if (filters.assigneeIds) {
     embeds.push("fd:task_assignees!task_assignees_task_id_fkey!inner(user_id)");
     conditions.push({ column: "fd.user_id", op: "in", value: filters.assigneeIds });
+  }
+  if (filters.assignedByMe) {
+    embeds.push("fb:task_assignees!task_assignees_task_id_fkey!inner(assigned_by)");
+    conditions.push({ column: "fb.assigned_by", op: "eq", value: filters.assignedByMe });
   }
   return { embeds, conditions };
 }

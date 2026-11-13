@@ -1,9 +1,8 @@
-import { AlertTriangle, CheckCircle2, CheckSquare, CircleDot, History, Layers, ListTodo, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CheckSquare, CircleDot, Layers, ListTodo, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { ActivityFeed } from "@/components/app/activity-feed";
 import { PriorityBadge, ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { StatCard } from "@/components/dashboard/widgets";
@@ -16,7 +15,6 @@ import { listActiveEmployees, listProjectCollaborators } from "@/lib/data/collab
 import { TaskBoard } from "@/components/tasks/task-board";
 import { TaskFilters } from "@/components/tasks/task-filters";
 import { TaskList } from "@/components/tasks/task-list";
-import { listActivity } from "@/lib/data/activity";
 import { listClients } from "@/lib/data/clients";
 import { getProject } from "@/lib/data/projects";
 import { listTasks, toTaskRows } from "@/lib/data/tasks";
@@ -47,7 +45,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
   const view = get("view") === "board" ? "board" : "list";
 
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
-  const [tasks, members, activity, clients, mayCreate, collaborators, employees] = await Promise.all([
+  const [tasks, members, clients, mayCreate, collaborators, employees] = await Promise.all([
     listTasks({
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -62,7 +60,6 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
       sort: (["updated", "due", "start", "priority"] as const).find((s) => s === get("sort")),
     }),
     getWorkspaceMembers(project.workspaceId),
-    listActivity({ workspaceId: project.workspaceId, projectId: project.id, limit: 15 }),
     listClients(project.workspaceId),
     canCreateProjects(project.workspaceId, session.user.id, session.profile.role),
     // People from other workspaces with access to this project (030; RLS-scoped).
@@ -84,7 +81,6 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
   const memberIds = new Set(members.map((m) => m.userId));
   const collaboratorIds = new Set(collaborators.map((c) => c.userId));
   const accessCandidates = employees.filter((e) => !memberIds.has(e.userId) && !collaboratorIds.has(e.userId));
-  const names = new Map(memberOptions.map((m) => [m.userId, m.name]));
   const role = session.profile.role;
   const userId = session.user.id;
   // Same rule as the projects update policy (migration 020); RLS enforces it again.
@@ -193,7 +189,6 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
           <TabsTrigger value="tasks">Tasks</TabsTrigger>
           <TabsTrigger value="deliverables">Deliverables</TabsTrigger>
           {showAccess ? <TabsTrigger value="access">Access</TabsTrigger> : null}
-          <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
 
         <TabsContent value="tasks">
@@ -232,12 +227,6 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
             </Section>
           </TabsContent>
         ) : null}
-
-        <TabsContent value="activity">
-          <Section title="Recent project activity" icon={History}>
-            <ActivityFeed items={activity} names={names} />
-          </Section>
-        </TabsContent>
       </Tabs>
     </>
   );

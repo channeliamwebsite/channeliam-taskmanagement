@@ -2,7 +2,6 @@ import { CheckSquare } from "lucide-react";
 import type { Metadata } from "next";
 
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
-import { TargetWorkspacePicker } from "@/components/app/target-workspace-picker";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { TaskBoard } from "@/components/tasks/task-board";
 import { TaskFilters } from "@/components/tasks/task-filters";
@@ -13,7 +12,7 @@ import { listProjectOptions } from "@/lib/data/projects";
 import { TaskPager } from "@/components/tasks/task-pager";
 import { listTasks, listTasksPage, toTaskRows, type TaskSummary } from "@/lib/data/tasks";
 import { createClient } from "@/lib/supabase/server";
-import { getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, isPriority, isTaskStatus } from "@/lib/domain";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -104,7 +103,6 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     .map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const title = view === "board" ? "Task Board" : scope === "mine" ? "My Tasks" : "Tasks";
-  const allWorkspaces = session.profile.role === "SUPER_ADMIN" ? await getMyWorkspaces() : [];
   const external = scope === "mine" && view !== "board" ? toTaskRows(await collaborationTasks(userId, workspace.id), session) : [];
 
   return (
@@ -114,7 +112,6 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         description={`${total} task${total === 1 ? "" : "s"} in ${workspace.name}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {allWorkspaces.length ? <TargetWorkspacePicker workspaces={allWorkspaces} activeId={workspace.id} /> : null}
             <NewTaskButton
               projects={projects}
               clients={clientOptions}

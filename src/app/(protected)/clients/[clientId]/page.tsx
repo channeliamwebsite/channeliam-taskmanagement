@@ -1,9 +1,8 @@
-import { AlertTriangle, Briefcase, CalendarDays, CheckCircle2, FileSpreadsheet, FolderKanban, History, ListTodo } from "lucide-react";
+import { AlertTriangle, Briefcase, CalendarDays, CheckCircle2, FileSpreadsheet, FolderKanban, ListTodo } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { ActivityFeed } from "@/components/app/activity-feed";
 import { ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
 import { ClientFormButton } from "@/components/clients/client-form-button";
@@ -15,7 +14,6 @@ import { NewTaskButton } from "@/components/tasks/new-task-button";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { listActivity, type ActivityItem } from "@/lib/data/activity";
 import { getClient } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
 import { listTasks } from "@/lib/data/tasks";
@@ -43,17 +41,12 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
 
   const projects = (await listProjects(client.workspaceId)).filter((p) => p.clientId === client.id);
   const projectIds = projects.map((p) => p.id);
-  const [tasks, members, canCreate, activityLists] = await Promise.all([
+  const [tasks, members, canCreate] = await Promise.all([
     listTasks({ workspaceId: client.workspaceId, projectIds }),
     getWorkspaceMembers(client.workspaceId),
     // Same rule as the Projects page; createProject and RLS enforce it again.
     canCreateProjects(client.workspaceId, session.user.id, session.profile.role),
-    Promise.all(projects.slice(0, 10).map((p) => listActivity({ workspaceId: client.workspaceId, projectId: p.id, limit: 10 }))),
   ]);
-  const activity = activityLists
-    .flat()
-    .sort((a: ActivityItem, b: ActivityItem) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, 15);
 
   const open = tasks.filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED");
   // Client totals use the same leaf-task rule as project progress (a parent is
@@ -65,7 +58,6 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
   const upcoming = open
     .filter((t) => t.dueDate && t.dueDate >= today && t.dueDate <= horizon)
     .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
-  const names = new Map(members.map((m) => [m.userId, displayName({ full_name: m.fullName, email: m.email })]));
   const isAdmin = session.profile.role !== "INDIVIDUAL";
   const owners = members
     .filter((m) => m.isActive)
@@ -153,7 +145,6 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
         <TabsList className="mb-4">
           <TabsTrigger value="projects">Projects ({projects.length})</TabsTrigger>
           <TabsTrigger value="deadlines">Deadlines{overdue.length ? ` · ${overdue.length} overdue` : ""}</TabsTrigger>
-          <TabsTrigger value="activity">Activity</TabsTrigger>
           <TabsTrigger value="details">Details</TabsTrigger>
         </TabsList>
 
@@ -256,12 +247,6 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
               <CompactTaskList tasks={overdue.slice(0, 10)} today={today} empty="Nothing overdue." showAssignee />
             </Section>
           </div>
-        </TabsContent>
-
-        <TabsContent value="activity">
-          <Section title="Recent activity" icon={History}>
-            <ActivityFeed items={activity} names={names} />
-          </Section>
         </TabsContent>
 
         <TabsContent value="details">

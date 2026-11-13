@@ -5,11 +5,13 @@ import {
   CalendarOff,
   CheckCircle2,
   CheckSquare,
+  CircleDashed,
   CircleDot,
   ClipboardCheck,
   FolderKanban,
   ListTodo,
   Sun,
+  UserCheck,
   Users,
 } from "lucide-react";
 import type { Metadata } from "next";
@@ -18,7 +20,6 @@ import Link from "next/link";
 
 import { PriorityBadge, ProgressBar, ProjectStatusBadge, StatusBadge } from "@/components/app/badges";
 import { PageHeader, Section, sectionLinkClass } from "@/components/app/page-header";
-import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -43,11 +44,11 @@ import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
 import { uniqueById } from "@/lib/task-query";
-import { canCreateProjects, getMyWorkspaces, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
+import { canCreateProjects, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
 import { BUSINESS_TIMEZONE, PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue, todayISO } from "@/lib/domain";
 import { buildRangeReport } from "@/lib/data/hr-month";
 import { listLeaveForReview } from "@/lib/data/hr";
-import { dashboardCounts, type DashboardCounts } from "@/lib/hr/report";
+import { dashboardCounts, REPORT_LABELS, type DashboardCounts, type ReportStatus } from "@/lib/hr/report";
 import { isCompletedOn, isInTodaysWorkload } from "@/lib/scheduling";
 import {
   departmentProgress,
@@ -116,7 +117,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const isAdmin = session.profile.role === "ADMIN";
   const isIndividual = session.profile.role === "INDIVIDUAL";
-  const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients, workspaces] = await Promise.all([
+  const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients] = await Promise.all([
     // Super admin: company-wide (unchanged) — the dashboard's company-wide
     // figures need every task. Admin / Individual: scoped to what their own
     // dashboard view can show (see the two helpers above).
@@ -137,9 +138,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
     isAdmin ? canCreateProjects(workspace.id, session.user.id, session.profile.role) : Promise.resolve(false),
     // RLS-scoped to the active workspace, so the picker lists only clients the admin can attach a project to.
     isAdmin ? listClients(workspace.id) : Promise.resolve([]),
-    // Workspace switcher (super admins only); independent of everything else above, so it's fetched here
-    // rather than in its own later await (was previously an unforced extra sequential round trip).
-    isSuperAdmin ? getMyWorkspaces() : Promise.resolve([]),
   ]);
 
   const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
@@ -157,14 +155,17 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
       listLeaveForReview("PENDING", Number(attendanceDay.slice(0, 4))),
     ]);
     const attendance = dashboardCounts(attendanceReport.reports.filter((r) => r.employee.isActive).map((r) => r.days[0]));
+    // Today's attendance status per employee, for the Employee overview table --
+    // same report already fetched above for the company-wide counts, no new query.
+    const attendanceStatusByUser = new Map(attendanceReport.reports.map((r) => [r.employee.userId, r.days[0]?.status]));
     return (
       <SuperAdminDashboard
         {...props}
         range={range}
         attendance={attendance}
+        attendanceStatusByUser={attendanceStatusByUser}
         name={name}
         tracking={tracking}
-        workspaces={workspaces}
         pendingLeave={pendingLeave}
       />
     );
@@ -232,9 +233,9 @@ type Props = {
 type SuperAdminProps = Props & {
   range: DateRange | null;
   attendance: DashboardCounts;
+  attendanceStatusByUser: Map<string, ReportStatus | undefined>;
   name: string;
   tracking: Awaited<ReturnType<typeof loadDailyTracking>>;
-  workspaces: Awaited<ReturnType<typeof getMyWorkspaces>>;
   pendingLeave: Awaited<ReturnType<typeof listLeaveForReview>>;
 };
 
@@ -245,7 +246,7 @@ type SuperAdminProps = Props & {
  * lib/super-admin-overview and the existing report / attendance / leave data.
  * No task-creation actions and no meetings here (meetings: Team Today).
  */
-function SuperAdminDashboard({ workspace, tasks, projects, members, today, name, tracking, range, attendance, workspaces, pendingLeave }: SuperAdminProps) {
+function SuperAdminDashboard({ workspace, tasks, projects, members, today, name, tracking, range, attendance, attendanceStatusByUser, pendingLeave }: SuperAdminProps) {
   // Admins and Individuals who are active (super admins review; they do not report).
   const employees = members
     .filter((m) => m.role !== "SUPER_ADMIN" && m.isActive)
@@ -271,25 +272,27 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
     { label: "Last 30 days", from: addDays(today, -29), to: today },
   ];
   const head = "text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase";
+  // Company-wide, independent of the performance date filter above (same rule as My Day/Individual: due within 7 days, still open).
+  const deadlineHorizon = addDays(today, 7);
+  const upcomingCompanyWide = tasks
+    .filter((t) => isOpen(t) && t.dueDate && t.dueDate > today && t.dueDate <= deadlineHorizon)
+    .sort(byDue);
 
   return (
     <>
       <PageHeader
         title={`${greeting(workspace.timezone)}, ${name}`}
         description={`Here's what's happening across Channel I'm · ${formatDate(today)}`}
-        actions={
-          <div className="w-full sm:w-64">
-            <WorkspaceSwitcher workspaces={workspaces} activeId={workspace.id} />
-          </div>
-        }
       />
 
       {/* 1. Summary of the selected workspace; each card opens the matching list. */}
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Total employees" value={people.admins + people.individuals} icon={Users} tone="brand" hint={`${people.admins} Admin · ${people.individuals} Individual`} href="/team?active=active" />
+        <StatCard label="Present today" value={attendance.present} icon={UserCheck} tone="success" hint="Checked in today" href="/hr" />
         <StatCard label="Total tasks" value={counts.total} icon={ListTodo} tone="info" hint={workspace.name} href="/tasks?scope=all" />
         <StatCard label="Completed" value={counts.completed} icon={CheckCircle2} tone="success" hint={`${completionPercent}% completion`} href="/tasks?scope=all&status=COMPLETED" />
-        <StatCard label="In progress" value={counts.inProgress} icon={CircleDot} tone="violet" hint={`${counts.pending} not started`} href="/tasks?scope=all&status=IN_PROGRESS" />
+        <StatCard label="Pending" value={counts.pending} icon={CircleDashed} tone="warning" hint="Not started" href="/tasks?scope=all&status=TODO" />
+        <StatCard label="In progress" value={counts.inProgress} icon={CircleDot} tone="violet" hint="Being worked on" href="/tasks?scope=all&status=IN_PROGRESS" />
         <StatCard label="Overdue" value={counts.overdue} icon={AlertTriangle} tone={counts.overdue ? "danger" : "default"} hint={`${counts.blocked} blocked`} href="/tasks?scope=all&sort=due" />
       </div>
 
@@ -457,34 +460,50 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
         >
           {performance.length ? (
             <div className="-mx-4 overflow-x-auto sm:-mx-5">
-              <table className="w-full min-w-[28rem] text-sm">
+              <table className="w-full min-w-[32rem] text-sm">
                 <thead className={head}>
                   <tr className="border-b border-border/70">
                     <th className="px-4 py-2 font-medium sm:px-5">Employee</th>
-                    <th className="px-3 py-2 font-medium">Department</th>
+                    <th className="px-3 py-2 font-medium">Attendance</th>
                     <th className="px-3 py-2 text-right font-medium">Total work</th>
-                    <th className="px-4 py-2 font-medium sm:px-5">Completion</th>
+                    <th className="px-3 py-2 font-medium">Completion</th>
+                    <th className="px-4 py-2 font-medium sm:px-5">Daily update</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/70">
-                  {performance.slice(0, 8).map((p) => (
-                    <tr key={p.userId}>
-                      <td className="px-4 py-2.5 font-medium sm:px-5">
-                        <span className="flex items-center gap-2">
-                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[10px] font-semibold text-brand-soft-foreground">{initials(p.name)}</span>
-                          <span className="truncate">{p.name}</span>
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-muted-foreground">{p.department ?? "—"}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{p.total}</td>
-                      <td className="px-4 py-2.5 sm:px-5">
-                        <span className="flex items-center gap-2">
-                          <ProgressBar value={p.completionPercent} className="w-20 [&>div]:bg-success" />
-                          <span className="w-9 text-right text-xs font-medium tabular-nums">{p.completionPercent}%</span>
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {performance.slice(0, 8).map((p) => {
+                    const attendanceStatus = attendanceStatusByUser.get(p.userId);
+                    const report = reportsBy.get(p.userId);
+                    const updateLabel =
+                      report?.morningSubmittedAt && report?.eveningSubmittedAt
+                        ? "Both submitted"
+                        : report?.morningSubmittedAt
+                          ? "Morning only"
+                          : report?.eveningSubmittedAt
+                            ? "Evening only"
+                            : "Not submitted";
+                    return (
+                      <tr key={p.userId}>
+                        <td className="px-4 py-2.5 font-medium sm:px-5">
+                          <Link href={`/reports?employee=${p.userId}`} className="flex items-center gap-2 hover:underline">
+                            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[10px] font-semibold text-brand-soft-foreground">{initials(p.name)}</span>
+                            <span className="truncate">{p.name}</span>
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2.5 text-muted-foreground">{attendanceStatus ? REPORT_LABELS[attendanceStatus] : "—"}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">{p.total}</td>
+                        <td className="px-3 py-2.5">
+                          <span className="flex items-center gap-2">
+                            <ProgressBar value={p.completionPercent} className="w-20 [&>div]:bg-success" />
+                            <span className="w-9 text-right text-xs font-medium tabular-nums">{p.completionPercent}%</span>
+                          </span>
+                        </td>
+                        <td className={cn("px-4 py-2.5 text-xs sm:px-5", updateLabel === "Not submitted" ? "font-medium text-warning-foreground" : "text-muted-foreground")}>
+                          {updateLabel}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -575,7 +594,11 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
                 <tbody className="divide-y divide-border/70">
                   {performance.slice(0, 8).map((p) => (
                     <tr key={p.userId}>
-                      <td className="max-w-[10rem] truncate px-4 py-2.5 font-medium sm:px-5">{p.name}</td>
+                      <td className="max-w-[10rem] truncate px-4 py-2.5 font-medium sm:px-5">
+                        <Link href={`/reports?employee=${p.userId}`} className="hover:underline">
+                          {p.name}
+                        </Link>
+                      </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{p.total}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-success-foreground">{p.completed}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{p.inProgress}</td>
@@ -590,6 +613,10 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
           )}
         </Section>
       </div>
+
+      <Section title={`Upcoming deadlines (${upcomingCompanyWide.length})`} icon={CalendarDays} description="Next 7 days, company-wide" className="mt-6">
+        <CompactTaskList tasks={upcomingCompanyWide.slice(0, 8)} today={today} empty="Nothing due in the next 7 days." showAssignee />
+      </Section>
     </>
   );
 }

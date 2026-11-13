@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { ActivityFeed } from "@/components/app/activity-feed";
 import { PriorityBadge, ProgressBar, StatusBadge } from "@/components/app/badges";
 import { EmptyState, Section } from "@/components/app/page-header";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
@@ -12,7 +11,6 @@ import { AssigneesPanel, ProgressControl, TaskHeaderActions } from "@/components
 import { ScheduleInput } from "@/components/tasks/schedule-input";
 import { TaskList } from "@/components/tasks/task-list";
 import { TaskStatusSelect } from "@/components/tasks/task-status-select";
-import { listActivity } from "@/lib/data/activity";
 import { getParentCandidates, getTask, getTaskComments, toTaskRows, assignedAtOf, priorityTargetInfo } from "@/lib/data/tasks";
 import { getWorkspaceMembers } from "@/lib/data/workspace";
 import { hasDerivedProgress, taskProgress } from "@/lib/progress";
@@ -32,9 +30,8 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
   const task = await getTask(taskId, session);
   if (!task) notFound(); // missing or not visible under RLS
 
-  const [comments, activity, members, parentCandidates] = await Promise.all([
+  const [comments, members, parentCandidates] = await Promise.all([
     getTaskComments(task.id),
-    listActivity({ workspaceId: task.workspaceId, taskId: task.id, limit: 30 }),
     getWorkspaceMembers(task.workspaceId),
     task.permissions.canManage ? getParentCandidates(task.projectId, task.id) : Promise.resolve([]),
   ]);
@@ -46,7 +43,6 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
     isActive: m.isActive,
     team: m.team,
   }));
-  const names = new Map(memberOptions.map((m) => [m.userId, m.name]));
   const today = todayISO();
   const targetInfo = priorityTargetInfo(task);
   const overdue = isOverdue(task.dueDate, task.status, today);
@@ -155,10 +151,6 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
               currentUserId={session.user.id}
               canModerate={canManage}
             />
-          </Section>
-
-          <Section title="Activity">
-            <ActivityFeed items={activity} names={names} showTarget={false} />
           </Section>
         </div>
 

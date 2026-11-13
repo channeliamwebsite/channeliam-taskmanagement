@@ -4,14 +4,12 @@ import Link from "next/link";
 
 import { PriorityBadge, ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
-import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { TargetWorkspacePicker } from "@/components/app/target-workspace-picker";
 import { ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { listClients } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
-import { canCreateProjects, getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { canCreateProjects, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABELS, addDaysISO, displayName, formatDate } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
@@ -42,14 +40,11 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
   const sort = get("sort");
   const q = get("q").trim().toLowerCase();
 
-  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
-  const [projects, members, canCreate, clients, allWorkspaces] = await Promise.all([
+  const [projects, members, canCreate, clients] = await Promise.all([
     listProjects(workspace.id),
     getWorkspaceMembers(workspace.id),
     canCreateProjects(workspace.id, session.user.id, session.profile.role),
     listClients(workspace.id),
-    // Every role: the workspace filter lists the caller's own workspaces.
-    getMyWorkspaces(),
   ]);
   const owners = members
     .filter((m) => m.isActive)
@@ -87,14 +82,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
       <PageHeader
         title="Projects"
         description={`${projects.length} project${projects.length === 1 ? "" : "s"} you can access`}
-        actions={
-          canCreate ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {isSuperAdmin ? <TargetWorkspacePicker workspaces={allWorkspaces} activeId={workspace.id} /> : null}
-              <ProjectFormButton mode="create" workspaceId={workspace.id} owners={owners} clients={clients} />
-            </div>
-          ) : null
-        }
+        actions={canCreate ? <ProjectFormButton mode="create" workspaceId={workspace.id} owners={owners} clients={clients} /> : null}
       />
       {projects.length ? (
         <form action="/projects" className="mb-4 grid gap-3 rounded-xl border border-border/80 bg-card p-4 shadow-card sm:px-5">
@@ -103,11 +91,6 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input name="q" type="search" defaultValue={get("q")} placeholder="Search projects…" aria-label="Search projects" className="pl-9" />
             </div>
-            {allWorkspaces.length > 1 ? (
-              <div className="w-full sm:w-56">
-                <WorkspaceSwitcher workspaces={allWorkspaces} activeId={workspace.id} />
-              </div>
-            ) : null}
             <span className="text-xs text-muted-foreground lg:ml-auto">
               Showing {filtered.length} of {projects.length}
             </span>

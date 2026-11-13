@@ -3,6 +3,7 @@
 import { CalendarClock, Flag, Plus, Video } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { PriorityBadge } from "@/components/app/badges";
@@ -101,10 +102,19 @@ export function CalendarView({
   selfOnly: { userId: string } | null;
 }) {
   const [createFor, setCreateFor] = useState<string | null>(null);
+  const searchParams = useSearchParams();
   const byDay = new Map<string, CalendarItem[]>();
   for (const it of items) byDay.set(it.date, [...(byDay.get(it.date) ?? []), it]);
   const meetingsByDay = new Map<string, MeetingOnDay[]>();
   for (const m of meetings) meetingsByDay.set(m.date, [...(meetingsByDay.get(m.date) ?? []), m]);
+
+  // Same filters the viewer already has applied (scope/client/project/etc.), just switching to day view for this date.
+  const dayViewHref = (day: string) => {
+    const p = new URLSearchParams(searchParams);
+    p.set("view", "day");
+    p.set("date", day);
+    return `/calendar?${p.toString()}`;
+  };
 
   const dayCell = (day: string) => {
     const list = byDay.get(day) ?? [];
@@ -164,7 +174,17 @@ export function CalendarView({
               <Item item={it} compact={view !== "day"} />
             </li>
           ))}
-          {list.length > limit ? <li className="px-1 text-[11px] text-muted-foreground">+{list.length - limit} more</li> : null}
+          {list.length > limit ? (
+            <li>
+              <Link
+                href={dayViewHref(day)}
+                onClick={(e) => e.stopPropagation()}
+                className="block px-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                +{list.length - limit} more
+              </Link>
+            </li>
+          ) : null}
         </ul>
       </div>
     );

@@ -165,86 +165,151 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
       {filtered.length === 0 ? (
         <EmptyState icon={Users} title={members.length ? "No members match these filters" : "No members yet"} />
       ) : (
-        <div className="overflow-x-auto rounded-xl border bg-card">
-          <table className="w-full min-w-[48rem] text-sm">
-            <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 font-medium">Employee</th>
-                <th className="px-3 py-2 font-medium">Role</th>
-                <th className="px-3 py-2 font-medium">Department</th>
-                <th className="px-3 py-2 font-medium">Reports to</th>
-                <th className="px-3 py-2 text-right font-medium">Open</th>
-                <th className="px-3 py-2 text-right font-medium">Overdue</th>
-                <th className="px-3 py-2 text-right font-medium">Blocked</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                {isSuperAdmin ? <th className="w-12 px-3 py-2"><span className="sr-only">Actions</span></th> : null}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filtered.map((m) => {
-                const name = nameOf.get(m.userId)!;
-                const s = stats.get(m.userId) ?? { open: 0, overdue: 0, blocked: 0 };
-                return (
-                  <tr key={m.userId} className={cn(!m.isActive && "opacity-60")}>
-                    <td className="px-4 py-2.5">
-                      <span className="flex items-center gap-2.5">
-                        <UserAvatar name={name} seed={m.userId} />
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">
-                            {name}
-                            {m.userId === me ? <span className="ml-1 text-xs text-muted-foreground">(you)</span> : null}
+        <>
+          {/* Desktop / tablet: table. */}
+          <div className="hidden overflow-x-auto rounded-xl border bg-card md:block">
+            <table className="w-full min-w-[48rem] text-sm">
+              <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Employee</th>
+                  <th className="px-3 py-2 font-medium">Role</th>
+                  <th className="px-3 py-2 font-medium">Department</th>
+                  <th className="px-3 py-2 font-medium">Reports to</th>
+                  <th className="px-3 py-2 text-right font-medium">Open</th>
+                  <th className="px-3 py-2 text-right font-medium">Overdue</th>
+                  <th className="px-3 py-2 text-right font-medium">Blocked</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  {isSuperAdmin ? <th className="w-12 px-3 py-2"><span className="sr-only">Actions</span></th> : null}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filtered.map((m) => {
+                  const name = nameOf.get(m.userId)!;
+                  const s = stats.get(m.userId) ?? { open: 0, overdue: 0, blocked: 0 };
+                  return (
+                    <tr key={m.userId} className={cn(!m.isActive && "opacity-60")}>
+                      <td className="px-4 py-2.5">
+                        <span className="flex items-center gap-2.5">
+                          <UserAvatar name={name} seed={m.userId} />
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">
+                              {name}
+                              {m.userId === me ? <span className="ml-1 text-xs text-muted-foreground">(you)</span> : null}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">{[m.jobTitle, m.email].filter(Boolean).join(" · ")}</span>
                           </span>
-                          <span className="block truncate text-xs text-muted-foreground">{[m.jobTitle, m.email].filter(Boolean).join(" · ")}</span>
                         </span>
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap">{ROLE_LABELS[m.role]}</td>
-                    <td className="px-3 py-2.5 text-muted-foreground">{m.team || "—"}</td>
-                    <td className="px-3 py-2.5 text-muted-foreground">{m.managerId ? nameOf.get(m.managerId) ?? "—" : "—"}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{s.open}</td>
-                    <td className={cn("px-3 py-2.5 text-right tabular-nums", s.overdue && "font-medium text-red-600")}>{s.overdue}</td>
-                    <td className={cn("px-3 py-2.5 text-right tabular-nums", s.blocked && "font-medium text-red-600")}>{s.blocked}</td>
-                    <td className="px-3 py-2.5">
-                      <span className="flex flex-wrap gap-1">
-                        <span className={cn("rounded-md px-2 py-0.5 text-xs font-medium", m.isActive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600")}>
-                          {m.isActive ? "Active" : "Inactive"}
-                        </span>
-                        {accountStatus.get(m.userId)?.pendingInvite ? (
-                          <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">Invite pending</span>
-                        ) : null}
-                        {m.isActive && accountStatus.get(m.userId)?.signInBlocked ? (
-                          <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Sign-in blocked</span>
-                        ) : null}
-                      </span>
-                    </td>
-                    {isSuperAdmin ? (
-                      <td className="px-3 py-2.5 text-right">
-                        <MemberActions
-                          workspaceId={workspace.id}
-                          isSelf={m.userId === me}
-                          member={{
-                            userId: m.userId,
-                            name,
-                            fullName: m.fullName,
-                            email: m.email,
-                            role: m.role,
-                            isActive: m.isActive,
-                            canCreateProjects: m.canCreateProjects,
-                            canCreateClientsProjects: m.canCreateClientsProjects,
-                            jobTitle: m.jobTitle,
-                            managerId: m.managerId,
-                            team: m.team,
-                            pendingInvite: Boolean(accountStatus.get(m.userId)?.pendingInvite),
-                          }}
-                        />
                       </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{ROLE_LABELS[m.role]}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{m.team || "—"}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{m.managerId ? nameOf.get(m.managerId) ?? "—" : "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{s.open}</td>
+                      <td className={cn("px-3 py-2.5 text-right tabular-nums", s.overdue && "font-medium text-red-600")}>{s.overdue}</td>
+                      <td className={cn("px-3 py-2.5 text-right tabular-nums", s.blocked && "font-medium text-red-600")}>{s.blocked}</td>
+                      <td className="px-3 py-2.5">
+                        <span className="flex flex-wrap gap-1">
+                          <span className={cn("rounded-md px-2 py-0.5 text-xs font-medium", m.isActive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600")}>
+                            {m.isActive ? "Active" : "Inactive"}
+                          </span>
+                          {accountStatus.get(m.userId)?.pendingInvite ? (
+                            <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">Invite pending</span>
+                          ) : null}
+                          {m.isActive && accountStatus.get(m.userId)?.signInBlocked ? (
+                            <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Sign-in blocked</span>
+                          ) : null}
+                        </span>
+                      </td>
+                      {isSuperAdmin ? (
+                        <td className="px-3 py-2.5 text-right">
+                          <MemberActions
+                            workspaceId={workspace.id}
+                            isSelf={m.userId === me}
+                            member={{
+                              userId: m.userId,
+                              name,
+                              fullName: m.fullName,
+                              email: m.email,
+                              role: m.role,
+                              isActive: m.isActive,
+                              canCreateProjects: m.canCreateProjects,
+                              canCreateClientsProjects: m.canCreateClientsProjects,
+                              jobTitle: m.jobTitle,
+                              managerId: m.managerId,
+                              team: m.team,
+                              pendingInvite: Boolean(accountStatus.get(m.userId)?.pendingInvite),
+                            }}
+                          />
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile: cards. */}
+          <ul className="grid gap-2 md:hidden">
+            {filtered.map((m) => {
+              const name = nameOf.get(m.userId)!;
+              const s = stats.get(m.userId) ?? { open: 0, overdue: 0, blocked: 0 };
+              return (
+                <li key={m.userId} className={cn("rounded-xl border bg-card p-3", !m.isActive && "opacity-60")}>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <UserAvatar name={name} seed={m.userId} />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">
+                          {name}
+                          {m.userId === me ? <span className="ml-1 text-xs text-muted-foreground">(you)</span> : null}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">{[ROLE_LABELS[m.role], m.team || null].filter(Boolean).join(" · ")}</span>
+                      </span>
+                    </span>
+                    {isSuperAdmin ? (
+                      <MemberActions
+                        workspaceId={workspace.id}
+                        isSelf={m.userId === me}
+                        member={{
+                          userId: m.userId,
+                          name,
+                          fullName: m.fullName,
+                          email: m.email,
+                          role: m.role,
+                          isActive: m.isActive,
+                          canCreateProjects: m.canCreateProjects,
+                          canCreateClientsProjects: m.canCreateClientsProjects,
+                          jobTitle: m.jobTitle,
+                          managerId: m.managerId,
+                          team: m.team,
+                          pendingInvite: Boolean(accountStatus.get(m.userId)?.pendingInvite),
+                        }}
+                      />
                     ) : null}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="rounded-md bg-muted px-2 py-0.5 text-muted-foreground">{s.open} open</span>
+                    <span className={cn("rounded-md px-2 py-0.5", s.overdue ? "bg-red-50 font-medium text-red-700" : "bg-muted text-muted-foreground")}>
+                      {s.overdue} overdue
+                    </span>
+                    <span className={cn("rounded-md px-2 py-0.5", s.blocked ? "bg-red-50 font-medium text-red-700" : "bg-muted text-muted-foreground")}>
+                      {s.blocked} blocked
+                    </span>
+                    <span className={cn("rounded-md px-2 py-0.5 font-medium", m.isActive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600")}>
+                      {m.isActive ? "Active" : "Inactive"}
+                    </span>
+                    {accountStatus.get(m.userId)?.pendingInvite ? (
+                      <span className="rounded-md bg-blue-50 px-2 py-0.5 font-medium text-blue-700">Invite pending</span>
+                    ) : null}
+                    {m.isActive && accountStatus.get(m.userId)?.signInBlocked ? (
+                      <span className="rounded-md bg-amber-50 px-2 py-0.5 font-medium text-amber-800">Sign-in blocked</span>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </>
   );

@@ -1,4 +1,4 @@
-import { CheckCircle2, ClipboardList, FileText, ListTodo, Moon, Sunrise } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, CircleDot, ClipboardList, FileText, ListTodo, Moon, Sunrise } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -11,10 +11,11 @@ import { ReportHistoryList } from "@/components/reports/report-history-list";
 import { ReportComparison, type ComparisonRow } from "@/components/reports/report-comparison";
 import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import { summarizeDay } from "@/lib/data/daily-summary";
-import { getTaskTitles, isCarriedForward } from "@/lib/data/tasks";
+import { getTaskTitles, isCarriedForward, listTasks } from "@/lib/data/tasks";
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, formatDate, formatDateTime, isTaskStatus, PRIORITY_RANK, TASK_STATUS_LABELS } from "@/lib/domain";
 import { compareReport, hasSubmission, isExpectedReporter, summarizeComparisons } from "@/lib/report-compare";
+import { statusCounts } from "@/lib/super-admin-overview";
 import {
   buildHistoryEntry,
   buildReportRoster,
@@ -135,7 +136,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
     );
   }
 
-  const [mineRes, teamRes, day, members] = await Promise.all([
+  const [mineRes, teamRes, day, members, employeeTasks] = await Promise.all([
     canSubmit
       ? supabase.from("daily_reports").select(SELECT).eq("workspace_id", workspace.id).eq("user_id", userId)
           .order("report_date", { ascending: false }).limit(10)
@@ -147,8 +148,13 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
       ? summarizeDay(workspace.id, userId, today, workspace.timezone)
       : Promise.resolve({ completed: [], notCompleted: [], blocked: [] }),
     canViewTeam ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),
+    // One employee's own tasks, scoped by assignee (RLS still applies) -- not the
+    // whole workspace's task list -- for the compact task summary shown when a
+    // single employee is selected (dashboard employee-row click-through).
+    canViewTeam && employee ? listTasks({ workspaceId: workspace.id, assigneeId: employee }) : Promise.resolve(null),
   ]);
   if (mineRes.error || teamRes.error) throw loadError("Failed to load reports", mineRes.error ?? teamRes.error);
+  const employeeTaskCounts = employeeTasks ? statusCounts(employeeTasks, today) : null;
 
   const mine = mineRes.data as unknown as ReportRow[];
   const todays = mine.find((r) => r.report_date === today);
@@ -410,6 +416,18 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
               </Link>
             </form>
           </div>
+
+          {employeeTaskCounts ? (
+            <Section title={`${roster.find((m) => m.userId === employee)?.name ?? "Employee"} · tasks`}>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+                <StatCard label="Assigned" value={employeeTaskCounts.total} icon={ListTodo} tone="brand" />
+                <StatCard label="Completed" value={employeeTaskCounts.completed} icon={CheckCircle2} tone="success" />
+                <StatCard label="Pending" value={employeeTaskCounts.pending} icon={CircleDashed} tone="warning" />
+                <StatCard label="In progress" value={employeeTaskCounts.inProgress} icon={CircleDot} tone="violet" />
+                <StatCard label="Overdue" value={employeeTaskCounts.overdue} icon={AlertTriangle} tone={employeeTaskCounts.overdue ? "danger" : "default"} />
+              </div>
+            </Section>
+          ) : null}
 
           {isSuperAdmin ? (
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

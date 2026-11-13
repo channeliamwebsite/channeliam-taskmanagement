@@ -7,7 +7,6 @@ export type TaskStatus = Enums["task_status"];
 export type Priority = Enums["priority_level"];
 export type TaskType = Enums["task_type"];
 export type ProjectStatus = Enums["project_status"];
-export type ActivityAction = Enums["activity_action"];
 
 export const TASK_STATUSES: readonly TaskStatus[] = [
   "TODO",
@@ -121,41 +120,6 @@ export const PROJECT_STATUS_STYLES: Record<ProjectStatus, string> = {
   ON_HOLD: "bg-amber-50 text-amber-700 ring-amber-200",
   COMPLETED: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   ARCHIVED: "bg-zinc-100 text-zinc-500 ring-zinc-200",
-};
-
-export const ACTIVITY_LABELS: Record<ActivityAction, string> = {
-  TASK_CREATED: "created the task",
-  TASK_UPDATED: "updated the task",
-  TASK_ASSIGNED: "assigned",
-  TASK_UNASSIGNED: "unassigned",
-  TASK_REASSIGNED: "reassigned the task",
-  STATUS_CHANGED: "changed status",
-  PRIORITY_CHANGED: "changed priority",
-  PROGRESS_CHANGED: "updated progress",
-  DUE_DATE_CHANGED: "changed the due date",
-  TASK_SCHEDULED: "rescheduled",
-  TASK_COMPLETED: "completed the task",
-  COMMENT_ADDED: "commented",
-  ATTACHMENT_UPLOADED: "uploaded an attachment",
-  PROJECT_CREATED: "created the project",
-  PROJECT_UPDATED: "updated the project",
-  PROJECT_STATUS_CHANGED: "changed project status",
-  PROJECT_DELETED: "deleted the project",
-  TASK_DELETED: "deleted a task",
-  CLIENT_CREATED: "created a client",
-  CLIENT_UPDATED: "updated a client",
-  CLIENT_DELETED: "deleted a client",
-  MEMBER_ADDED: "added a workspace member",
-  MEMBER_REMOVED: "removed a workspace member",
-  MEMBER_PERMISSION_CHANGED: "changed project-creation permission",
-  EMPLOYEE_ROLE_CHANGED: "changed an employee's role",
-  EMPLOYEE_DEACTIVATED: "deactivated an employee",
-  EMPLOYEE_REACTIVATED: "reactivated an employee",
-  EMPLOYEE_UPDATED: "updated an employee",
-  WORKSPACE_CREATED: "created the workspace",
-  WORKSPACE_UPDATED: "changed workspace settings",
-  COLLABORATOR_ADDED: "gave project access to someone from another workspace",
-  COLLABORATOR_REMOVED: "removed someone's project access",
 };
 
 export function isTaskStatus(value: unknown): value is TaskStatus {

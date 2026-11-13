@@ -2,10 +2,8 @@ import type { ReactNode } from "react";
 
 import { MobileNav, Sidebar, type NavItem, type NavSection } from "@/components/app/nav";
 import { NotificationsMenu, SearchBox, UserMenu, type NotificationItem } from "@/components/app/topbar-menus";
-import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
 import { requireSession } from "@/lib/auth/dal";
 import { ROLE_LABELS, getPermissions } from "@/lib/auth/roles";
-import { getActiveWorkspace, getMyWorkspaces } from "@/lib/data/workspace";
 import { displayName } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/server";
 
@@ -38,80 +36,64 @@ async function getNotifications(userId: string) {
 
 export async function AppShell({ children }: { children: ReactNode }) {
   const session = await requireSession();
-  const [workspaces, active, notifications] = await Promise.all([
-    getMyWorkspaces(),
-    getActiveWorkspace(),
-    getNotifications(session.user.id),
-  ]);
+  const notifications = await getNotifications(session.user.id);
 
   const permissions = getPermissions(session.profile.role);
   // Navigation adapts to the role. Hiding a link is only convenience: every
   // route still enforces access on the server (and in RLS).
   const role = session.profile.role;
+  // Every role (2026-11-13 redesign): My Day, My Tasks, Daily Updates,
+  // Calendar, Inbox, in this order. Dashboard is Super Admin's home only --
+  // Admin's and Individual's /dashboard routes still exist and still work if
+  // visited directly, they're just not linked here; My Day is each role's
+  // actual home and already covers the same ground.
   const myWork: NavSection = {
     title: "My work",
     items: [
       { href: "/my-day", label: "My Day", icon: "myday" },
-      // Admins and super admins reach the dashboard from the Workspace section.
-      ...(role === "INDIVIDUAL" ? [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" } as NavItem] : []),
       { href: "/tasks", label: "My Tasks", icon: "tasks" },
+      { href: "/reports", label: "Daily Updates", icon: "reports" },
       { href: "/calendar", label: "Calendar", icon: "calendar" },
       { href: "/inbox", label: "Inbox", icon: "inbox", badge: notifications.unread },
-      ...(permissions.viewTeamReports ? [] : [{ href: "/reports", label: "Daily Update", icon: "reports" } as NavItem]),
     ],
   };
+  const clientsProjects: NavSection = {
+    title: "Clients & Projects",
+    items: [
+      { href: "/clients", label: "Clients", icon: "clients" },
+      { href: "/projects", label: "Projects", icon: "projects" },
+      ...(permissions.viewTeamReports ? [{ href: "/client-reports", label: "Client Reports", icon: "myreports" } as NavItem] : []),
+    ],
+  };
+  // Admin only: monitoring the team's work. No separate "Assign Tasks" entry
+  // (2026-11-13 redesign) -- assignment happens inside My Tasks itself, which
+  // already has the New Task button and the existing Team Board view.
   const team: NavSection = {
     title: "Team",
     items: [
-      { href: "/team-today", label: "Team Today", icon: "teamtoday" },
-      { href: "/team", label: role === "SUPER_ADMIN" ? "Employees" : "Team", icon: "team" },
-      { href: "/reports", label: "Daily Updates", icon: "reports" },
+      { href: "/team-today", label: "Team Progress", icon: "teamtoday" },
+      { href: "/attendance", label: "Attendance", icon: "attendance" },
+      { href: "/attendance/leave", label: "Leave / WFH", icon: "leave" },
     ],
   };
-  // Everyone records their own attendance, super admins included. Super
-  // admins also get the company-wide HR pages (the /hr routes check the role).
-  const myAttendance: NavItem[] = [
-    { href: "/attendance", label: "My Attendance", icon: "attendance" },
-    // Super admins decide leave under Attendance & HR; they do not apply for it.
-    ...(role === "SUPER_ADMIN" ? [] : [{ href: "/attendance/leave", label: "Leave Applications", icon: "leave" } as NavItem]),
-    { href: "/attendance/profile", label: "My Profile", icon: "profile" },
-    { href: "/attendance/reports", label: "My Reports", icon: "myreports" },
-  ];
-  const attendanceHr: NavSection = {
-    title: "Attendance & HR",
-    items:
-      role === "SUPER_ADMIN"
-        ? [
-            { href: "/hr", label: "Team Attendance", icon: "teamattendance" },
-            { href: "/hr/leave", label: "Leave Applications", icon: "leave" },
-            { href: "/hr/employees", label: "Employee Profiles", icon: "employees" },
-            { href: "/hr/holidays", label: "Public Holidays", icon: "holidays" },
-            { href: "/hr/reports", label: "Monthly Reports", icon: "myreports" },
-            ...myAttendance,
-          ]
-        : myAttendance,
-  };
-  const workspaceNav: NavSection = {
-    title: "Workspace",
+  // Admin only. Settings is also reachable from the header's account menu on
+  // every role; listed here too so Admin's account surface is in one place.
+  const adminAccount: NavSection = {
+    title: "Account",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-      { href: "/clients", label: "Clients", icon: "clients" },
-      ...(permissions.viewTeamReports ? [{ href: "/client-reports", label: "Client Reports", icon: "myreports" } as NavItem] : []),
-      { href: "/projects", label: "Projects", icon: "projects" },
-      // Task boards are for admins managing their team's work, not for super admins.
-      ...(role === "SUPER_ADMIN" ? [] : [{ href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" } as NavItem]),
-    ],
-  };
-  // The single Bug Reports entry, for every role: the page holds the form and the list.
-  const settings: NavSection = {
-    title: "Settings",
-    items: [
+      { href: "/attendance/profile", label: "My Profile", icon: "profile" },
       { href: "/settings", label: "Settings", icon: "settings" },
-      { href: "/bugs", label: "Bug Reports", icon: "bugs" },
     ],
   };
-  // Individuals: just their day. Admins: their day, then their team.
-  // Super admins: the team first, then their own work.
+  // Individual only.
+  const individualAccount: NavSection = {
+    title: "Account",
+    items: [
+      { href: "/attendance", label: "Attendance", icon: "attendance" },
+      { href: "/attendance/leave", label: "Leave / WFH", icon: "leave" },
+      { href: "/attendance/profile", label: "My Profile", icon: "profile" },
+    ],
+  };
   // Super admins (decided 2026-11-06): a company-level menu only. No personal
   // My Day / My Tasks / attendance pages (they do not check in); those pages
   // still exist for the other roles and keep their own access checks.
@@ -140,30 +122,38 @@ export async function AppShell({ children }: { children: ReactNode }) {
       items: [
         { href: "/hr", label: "Team Attendance", icon: "teamattendance" },
         { href: "/hr/leave", label: "Leave Applications", icon: "leave" },
-        { href: "/hr/employees", label: "Employee Profiles", icon: "employees" },
+        // Employee directory (above) and Employee Profile (here) are
+        // deliberately two different links to two different pages -- see
+        // app-shell redesign notes.
+        { href: "/hr/employees", label: "Employee Profile", icon: "employees" },
         { href: "/hr/holidays", label: "Public Holidays", icon: "holidays" },
         { href: "/hr/reports", label: "Monthly Reports", icon: "myreports" },
       ],
     },
-    settings,
+    {
+      title: "System",
+      items: [
+        { href: "/settings", label: "Settings", icon: "settings" },
+        { href: "/bugs", label: "Bug Reports", icon: "bugs" },
+      ],
+    },
   ];
   const sections: NavSection[] =
     role === "INDIVIDUAL"
-      ? [myWork, attendanceHr, settings]
+      ? [myWork, individualAccount]
       : role === "ADMIN"
-        ? [myWork, attendanceHr, team, workspaceNav, settings]
+        ? [myWork, clientsProjects, team, adminAccount]
         : superAdminSections;
   const homeHref = role === "SUPER_ADMIN" ? "/dashboard" : "/my-day";
-  const switcher = <WorkspaceSwitcher workspaces={workspaces} activeId={active?.id ?? null} />;
   const name = displayName({ full_name: session.profile.fullName, email: session.profile.email });
   const roleLabel = ROLE_LABELS[session.profile.role];
 
   return (
     <div className="flex min-h-svh flex-1 bg-background">
-      <Sidebar sections={sections} workspaceSwitcher={switcher} roleLabel={roleLabel} homeHref={homeHref} />
+      <Sidebar sections={sections} roleLabel={roleLabel} homeHref={homeHref} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border/80 bg-card/85 px-4 backdrop-blur-md supports-backdrop-filter:bg-card/75 sm:px-6 lg:px-8">
-          <MobileNav sections={sections} workspaceSwitcher={switcher} roleLabel={roleLabel} homeHref={homeHref} />
+          <MobileNav sections={sections} roleLabel={roleLabel} homeHref={homeHref} />
           <SearchBox />
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
             <NotificationsMenu items={notifications.list} unread={notifications.unread} />

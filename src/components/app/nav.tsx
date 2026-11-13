@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import { BrandFooterCard, BrandLockup } from "@/components/app/brand";
 import { Button } from "@/components/ui/button";
@@ -128,13 +128,12 @@ function Brand({ roleLabel, homeHref = "/my-day" }: { roleLabel?: string; homeHr
   );
 }
 
-type ShellNavProps = { sections: NavSection[]; workspaceSwitcher: ReactNode; roleLabel?: string; homeHref?: string };
+type ShellNavProps = { sections: NavSection[]; roleLabel?: string; homeHref?: string };
 
-export function Sidebar({ sections, workspaceSwitcher, roleLabel, homeHref }: ShellNavProps) {
+export function Sidebar({ sections, roleLabel, homeHref }: ShellNavProps) {
   return (
     <aside className="sticky top-0 hidden h-svh w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r border-sidebar-border bg-sidebar px-4 py-5 lg:flex">
       <Brand roleLabel={roleLabel} homeHref={homeHref} />
-      {workspaceSwitcher}
       <NavLinks sections={sections} />
       <div className="mt-auto pt-2">
         <BrandFooterCard />
@@ -143,7 +142,7 @@ export function Sidebar({ sections, workspaceSwitcher, roleLabel, homeHref }: Sh
   );
 }
 
-export function MobileNav({ sections, workspaceSwitcher, roleLabel, homeHref }: ShellNavProps) {
+export function MobileNav({ sections, roleLabel, homeHref }: ShellNavProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -156,7 +155,6 @@ export function MobileNav({ sections, workspaceSwitcher, roleLabel, homeHref }: 
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             <Brand roleLabel={roleLabel} homeHref={homeHref} />
           </SheetHeader>
-          {workspaceSwitcher}
           <NavLinks sections={sections} onNavigate={() => setOpen(false)} />
           <div className="mt-auto pt-2">
             <BrandFooterCard />

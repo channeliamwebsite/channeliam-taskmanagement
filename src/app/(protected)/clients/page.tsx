@@ -4,12 +4,11 @@ import Link from "next/link";
 
 import { ProgressBar, ProjectStatusBadge } from "@/components/app/badges";
 import { EmptyState, PageHeader, Section } from "@/components/app/page-header";
-import { TargetWorkspacePicker } from "@/components/app/target-workspace-picker";
 import { ClientFormButton } from "@/components/clients/client-form-button";
 import { ClientTable, type ClientRow } from "@/components/clients/client-table";
 import { listClients } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
-import { getMyWorkspaces, getWorkspaceMembers } from "@/lib/data/workspace";
+import { getWorkspaceMembers } from "@/lib/data/workspace";
 import { mayCreateClients } from "@/lib/auth/roles";
 import { combineProgress } from "@/lib/progress";
 
@@ -21,12 +20,10 @@ export default async function ClientsPage() {
   const { session, workspace } = await getPageContext();
   if (!workspace) return <NoWorkspace session={session} />;
 
-  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
-  const [clients, projects, members, allWorkspaces] = await Promise.all([
+  const [clients, projects, members] = await Promise.all([
     listClients(workspace.id, { withContacts: session.profile.role !== "INDIVIDUAL" }),
     listProjects(workspace.id),
     getWorkspaceMembers(workspace.id),
-    isSuperAdmin ? getMyWorkspaces() : Promise.resolve([]),
   ]);
   const canEdit = session.profile.role !== "INDIVIDUAL";
   // Individuals add clients only with the can_create_clients_projects grant (028).
@@ -58,12 +55,7 @@ export default async function ClientsPage() {
         title="Clients"
         description={`${clients.length} client${clients.length === 1 ? "" : "s"} in ${workspace.name} · Client → Project → Task`}
         actions={
-          canAdd ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {isSuperAdmin ? <TargetWorkspacePicker workspaces={allWorkspaces} activeId={workspace.id} /> : null}
-              <ClientFormButton workspaceId={workspace.id} />
-            </div>
-          ) : null
+          canAdd ? <ClientFormButton workspaceId={workspace.id} /> : null
         }
       />
       {clients.length === 0 && projects.length === 0 ? (

@@ -6,7 +6,7 @@ import type { Session } from "@/lib/auth/dal";
 import { formatDateTime, priorityTarget, todayISO, type Priority, type TaskStatus, type TaskType } from "@/lib/domain";
 import { isCarriedForward as isCarriedForwardPure, taskFlags as taskFlagsPure } from "@/lib/scheduling";
 import { createClient } from "@/lib/supabase/server";
-import { canManageTaskAs } from "@/lib/task-permissions";
+import { canAssignTaskAs, canEditOrDeleteOwnTaskAs, canManageTaskAs } from "@/lib/task-permissions";
 import { PAGE_SIZE as PAGE_LIMIT, assigneeFilters, chunk, fetchAllPages, sortTaskRows, taskOrder, type TaskSort } from "@/lib/task-query";
 import { loadError } from "./errors";
 
@@ -283,7 +283,7 @@ export type TaskDetail = TaskSummary & {
   parent: { id: string; title: string } | null;
   ancestors: { id: string; title: string }[];
   subtasks: TaskSummary[];
-  permissions: { canManage: boolean; canUpdateStatus: boolean; canDelete: boolean };
+  permissions: { canManage: boolean; canEdit: boolean; canAssign: boolean; canUpdateStatus: boolean; canDelete: boolean };
 };
 
 export const getTask = cache(async (taskId: string, session: Session): Promise<TaskDetail | null> => {
@@ -338,13 +338,19 @@ export const getTask = cache(async (taskId: string, session: Session): Promise<T
   const summary = toSummary(row, counts);
   const userId = session.user.id;
   const role = session.profile.role;
-  // Mirrors private.can_manage_task (the database remains authoritative).
-  const canManage = canManageTaskAs(role, userId, {
+  // Three separate mirrors (the database remains authoritative): canManage
+  // (can_manage_task) gates subtask-parent eligibility and comment/attachment
+  // moderation; canEdit (can_edit_or_delete_own_task) gates the Edit button
+  // and deletion; canAssign (can_assign_task) gates the assignee picker.
+  const manageFacts = {
     createdBy: row.created_by,
     projectOwnerId: row.projectInfo?.owner_id ?? null,
     projectCreatedBy: row.projectInfo?.created_by ?? null,
     assignees: summary.assignees,
-  });
+  };
+  const canManage = canManageTaskAs(role, userId, manageFacts);
+  const canEdit = canEditOrDeleteOwnTaskAs(role, userId, manageFacts);
+  const canAssign = canAssignTaskAs(role, userId, manageFacts);
   const isAssignee = summary.assignees.some((a) => a.userId === userId);
 
   return {
@@ -360,8 +366,12 @@ export const getTask = cache(async (taskId: string, session: Session): Promise<T
     subtasks: childRows.map((c) => toSummary(c, counts)),
     permissions: {
       canManage,
-      canUpdateStatus: canManage || isAssignee,
-      canDelete: role === "SUPER_ADMIN" || (role === "ADMIN" && row.created_by === userId),
+      canEdit,
+      canAssign,
+      canUpdateStatus: canEdit || isAssignee,
+      // Mirrors the "tasks: creators can delete their own tasks" policy (045):
+      // creator-only, AND-ed with manage rights. No Super Admin branch.
+      canDelete: row.created_by === userId && canEdit,
     },
   };
 });

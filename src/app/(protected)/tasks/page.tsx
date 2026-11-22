@@ -112,13 +112,15 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         description={`${total} task${total === 1 ? "" : "s"} in ${workspace.name}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <NewTaskButton
-              projects={projects}
-              clients={clientOptions}
-              members={memberOptions}
-              workspaceId={workspace.id}
-              selfOnly={canAssign ? null : { userId }}
-            />
+            {session.permissions.createTasks ? (
+              <NewTaskButton
+                projects={projects}
+                clients={clientOptions}
+                members={memberOptions}
+                workspaceId={workspace.id}
+                selfOnly={canAssign ? null : { userId }}
+              />
+            ) : null}
           </div>
         }
       />

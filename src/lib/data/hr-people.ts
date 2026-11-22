@@ -21,7 +21,7 @@ export type Employee = {
   department: string | null;
   designation: string | null;
   managerId: string | null;
-  role: "SUPER_ADMIN" | "ADMIN" | "INDIVIDUAL";
+  role: "SUPER_ADMIN" | "OPERATIONAL_MANAGER" | "ADMIN" | "INDIVIDUAL";
   isActive: boolean;
   joiningDate: string | null;
   createdAt: string;

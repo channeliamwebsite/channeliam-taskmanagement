@@ -63,7 +63,9 @@ export default async function TeamTodayPage() {
         title="Team Today"
         description={`${formatDate(data.today)} · ${session.profile.role === "SUPER_ADMIN" ? "everyone in" : "your team in"} ${workspace.name}`}
         actions={
-          <NewTaskButton projects={projects} clients={clientOptions} members={memberOptions} workspaceId={workspace.id} label="Assign task" />
+          session.permissions.createTasks ? (
+            <NewTaskButton projects={projects} clients={clientOptions} members={memberOptions} workspaceId={workspace.id} label="Assign task" />
+          ) : null
         }
       />
       {isSuperAdmin && workingDay ? (

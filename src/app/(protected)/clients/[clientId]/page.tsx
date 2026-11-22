@@ -204,15 +204,17 @@ export default async function ClientPage({ params }: PageProps<"/clients/[client
                         </summary>
                         <div className="grid gap-3 pb-3 pl-4">
                           <div className="flex flex-wrap items-center gap-2">
-                            <NewTaskButton
-                              projects={projectOption}
-                              members={memberOptions}
-                              workspaceId={client.workspaceId}
-                              defaultProjectId={p.id}
-                              selfOnly={selfOnly}
-                              label="Add task"
-                              size="sm"
-                            />
+                            {session.permissions.createTasks ? (
+                              <NewTaskButton
+                                projects={projectOption}
+                                members={memberOptions}
+                                workspaceId={client.workspaceId}
+                                defaultProjectId={p.id}
+                                selfOnly={selfOnly}
+                                label="Add task"
+                                size="sm"
+                              />
+                            ) : null}
                             <Link href={`/projects/${p.id}`} className="text-xs text-muted-foreground hover:text-foreground hover:underline">
                               Open full project page →
                             </Link>

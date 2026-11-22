@@ -1684,6 +1684,7 @@ export type Database = {
           created_by: string | null
           description: string | null
           id: string
+          is_personal: boolean
           name: string
           timezone: string
           updated_at: string
@@ -1694,6 +1695,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          is_personal?: boolean
           name: string
           timezone?: string
           updated_at?: string
@@ -1703,6 +1705,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          is_personal?: boolean
           name?: string
           timezone?: string
           updated_at?: string
@@ -1742,6 +1745,10 @@ export type Database = {
           p_task_type?: Database["public"]["Enums"]["task_type"]
           p_title: string
         }
+        Returns: string
+      }
+      provision_personal_workspace: {
+        Args: { p_name?: string; p_operational_manager_id: string }
         Returns: string
       }
       daily_tracking: {
@@ -1950,7 +1957,7 @@ export type Database = {
         | "MARKETING"
         | "MEETING"
         | "OTHER"
-      user_role: "SUPER_ADMIN" | "ADMIN" | "INDIVIDUAL"
+      user_role: "SUPER_ADMIN" | "OPERATIONAL_MANAGER" | "ADMIN" | "INDIVIDUAL"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2166,7 +2173,7 @@ export const Constants = {
         "MEETING",
         "OTHER",
       ],
-      user_role: ["SUPER_ADMIN", "ADMIN", "INDIVIDUAL"],
+      user_role: ["SUPER_ADMIN", "OPERATIONAL_MANAGER", "ADMIN", "INDIVIDUAL"],
     },
   },
 } as const

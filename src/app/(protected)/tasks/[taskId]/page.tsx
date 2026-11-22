@@ -46,8 +46,7 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
   const today = todayISO();
   const targetInfo = priorityTargetInfo(task);
   const overdue = isOverdue(task.dueDate, task.status, today);
-  const { canManage, canUpdateStatus, canDelete } = task.permissions;
-  const canAssign = canManage && session.profile.role !== "INDIVIDUAL";
+  const { canManage, canEdit, canAssign, canUpdateStatus, canDelete } = task.permissions;
 
   return (
     <div className="grid gap-6">
@@ -88,7 +87,7 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
               taskId={task.id}
               title={task.title}
               isCompleted={task.status === "COMPLETED"}
-              canManage={canManage}
+              canManage={canEdit}
               canUpdateStatus={canUpdateStatus}
               canDelete={canDelete}
               subtaskCount={task.subtasks.length}
@@ -125,7 +124,7 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
           <Section
             title={`Subtasks${task.subtasks.length ? ` (${task.subtasks.length})` : ""}`}
             action={
-              canManage || task.createdBy === session.user.id ? (
+              session.permissions.createTasks && (canManage || task.createdBy === session.user.id) ? (
                 <NewTaskButton
                   projects={[]}
                   members={memberOptions}

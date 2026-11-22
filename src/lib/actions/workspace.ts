@@ -53,6 +53,30 @@ export async function createWorkspace(name: string, description?: string): Promi
   return ok({ id: data.id });
 }
 
+/**
+ * Super admin provisions a personal workspace for an Operational Manager
+ * (044). The database function is SECURITY DEFINER and re-checks both the
+ * caller's role and the target's role; this action's own checks exist only
+ * for a clearer error message before hitting the database.
+ */
+export async function provisionOperationalManagerWorkspace(
+  operationalManagerId: string,
+  name?: string,
+): Promise<ActionResult<{ id: string }>> {
+  const actor = await getActor();
+  if (!actor.ok) return actor;
+  if (actor.profile.role !== "SUPER_ADMIN") return fail("Only a super admin can provision a personal workspace.");
+  if (!isUuid(operationalManagerId)) return fail("Invalid user.");
+
+  const { data, error } = await actor.supabase.rpc("provision_personal_workspace", {
+    p_operational_manager_id: operationalManagerId,
+    p_name: cleanText(name, 200) || "Personal Workspace",
+  });
+  if (error) return fail(dbError(error, "Could not provision the personal workspace."));
+  refresh();
+  return ok({ id: data as string });
+}
+
 /** Super admin sets the workspace timezone (drives "today", My Day and carry-forward). */
 export async function updateWorkspaceTimezone(workspaceId: string, timezone: string): Promise<ActionResult> {
   const actor = await getActor();

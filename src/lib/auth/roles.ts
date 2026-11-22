@@ -8,20 +8,26 @@ export type UserRole = Database["public"]["Enums"]["user_role"];
 
 export const ROLES = {
   SUPER_ADMIN: "SUPER_ADMIN",
+  OPERATIONAL_MANAGER: "OPERATIONAL_MANAGER",
   ADMIN: "ADMIN",
   INDIVIDUAL: "INDIVIDUAL",
 } as const satisfies Record<UserRole, UserRole>;
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   SUPER_ADMIN: "Super Admin",
+  OPERATIONAL_MANAGER: "Operational Manager",
   ADMIN: "Admin",
   INDIVIDUAL: "Individual",
 };
 
+// Operational Manager sits above Individual but is intentionally NOT >= Admin:
+// it has company-wide task powers, not Admin's organisation-structure/team
+// administration. Code that needs the latter checks the role directly.
 const ROLE_RANK: Record<UserRole, number> = {
   INDIVIDUAL: 1,
-  ADMIN: 2,
-  SUPER_ADMIN: 3,
+  OPERATIONAL_MANAGER: 2,
+  ADMIN: 3,
+  SUPER_ADMIN: 4,
 };
 
 export function isRole(value: unknown): value is UserRole {
@@ -37,10 +43,21 @@ export function hasMinimumRole(role: UserRole, minimum: UserRole) {
   return ROLE_RANK[role] >= ROLE_RANK[minimum];
 }
 
-/** Capability flags derived from the role model agreed for the system. */
+/**
+ * Capability flags derived from the role model agreed for the system.
+ *
+ * Phase 2 (personal workspaces): Super Admin is monitoring-only — no task or
+ * project creation, assignment, editing, deletion, personal tasks, or task
+ * moderation (mirrors migrations 044-046). Operational Manager gets
+ * company-wide task creation/assignment and project creation (across
+ * departments and in their own personal workspace) without the
+ * organisation-structure administration that Admin has (viewTeam etc.).
+ */
 export function getPermissions(role: UserRole) {
   const isSuperAdmin = role === "SUPER_ADMIN";
-  const isAdminOrAbove = hasMinimumRole(role, "ADMIN");
+  const isAdmin = role === "ADMIN";
+  const isOperationalManager = role === "OPERATIONAL_MANAGER";
+  const managesWork = isAdmin || isOperationalManager;
 
   return {
     manageUsers: isSuperAdmin,
@@ -48,19 +65,21 @@ export function getPermissions(role: UserRole) {
     viewAllReports: isSuperAdmin,
     viewOrganizationActivity: isSuperAdmin,
     createWorkspaces: isSuperAdmin,
-    // Everyone may create tasks for themselves; assigning work to other
-    // people is a separate, admin-and-above permission (also enforced in RLS).
-    createTasks: true,
-    assignTasks: isAdminOrAbove,
-    viewTeam: isAdminOrAbove,
-    viewTeamReports: isAdminOrAbove,
+    createTasks: !isSuperAdmin,
+    assignTasks: managesWork,
+    // Team/employee administration pages stay Admin+Super Admin only; this is
+    // read/monitoring visibility, not the organisation-structure rights
+    // Operational Manager is deliberately excluded from.
+    viewTeam: isAdmin || isSuperAdmin,
+    viewTeamReports: isAdmin || isSuperAdmin,
     // Projects: admins additionally need the per-workspace
-    // `can_create_projects` flag, which the database enforces.
-    createProjects: isAdminOrAbove,
-    updateTaskStatus: true,
+    // `can_create_projects` flag, which the database enforces. Operational
+    // Manager's project creation is unrestricted at the database layer.
+    createProjects: managesWork,
+    updateTaskStatus: !isSuperAdmin,
     comment: true,
     uploadAttachments: true,
-    trackTime: true,
+    trackTime: !isSuperAdmin,
     // Super admins monitor and compare reports; they do not submit their own.
     submitDailyReports: !isSuperAdmin,
   } as const;
@@ -80,16 +99,17 @@ export function mayEditProject(
   project: { ownerId: string | null; createdBy: string | null; isDefault: boolean },
   mayCreate: boolean,
 ) {
-  if (role === "SUPER_ADMIN") return true;
+  // Super Admin is monitoring-only as of Phase 2 (046): no project edit rights.
   if (role !== "ADMIN") return false;
   return project.ownerId === userId || project.createdBy === userId || (mayCreate && !project.isDefault);
 }
 
 /**
  * Whether a user may create projects in a workspace, mirroring
- * `private.can_create_project`: a super admin in any workspace (company-level
- * since 025), an admin whose membership has `can_create_projects`, or an
- * individual granted `can_create_clients_projects` (028, default off).
+ * `private.can_create_project`: an operational manager in any workspace
+ * (044, unrestricted), an admin whose membership has `can_create_projects`,
+ * or an individual granted `can_create_clients_projects` (028, default off).
+ * Super Admin has no branch here as of 044 (monitoring-only).
  * `membership` is the user's own row in that workspace, or null when they are
  * not a member.
  */
@@ -97,7 +117,10 @@ export function mayCreateProjects(
   role: UserRole,
   membership: { canCreateProjects: boolean; canCreateClientsProjects?: boolean } | null,
 ) {
-  if (role === "SUPER_ADMIN") return true;
+  // Super Admin is monitoring-only as of Phase 2 (044): no project creation.
+  // Operational Manager may create a project in any workspace, personal or
+  // department, with no membership requirement (private.can_create_project).
+  if (role === "OPERATIONAL_MANAGER") return true;
   if (!membership) return false;
   if (role === "INDIVIDUAL") return Boolean(membership.canCreateClientsProjects);
   return role === "ADMIN" && membership.canCreateProjects;

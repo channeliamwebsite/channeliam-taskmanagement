@@ -20,7 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * gets their own report, whatever they pass.
  */
 export function resolveReportScope(
-  caller: { userId: string; role: "SUPER_ADMIN" | "ADMIN" | "INDIVIDUAL" },
+  caller: { userId: string; role: "SUPER_ADMIN" | "OPERATIONAL_MANAGER" | "ADMIN" | "INDIVIDUAL" },
   params: { month?: unknown; year?: unknown; employee?: unknown; department?: unknown },
   currentMonth: string,
 ): ReportScope {

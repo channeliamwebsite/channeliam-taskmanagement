@@ -4,13 +4,14 @@ import { cookies } from "next/headers";
 import { cache } from "react";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/dal";
 import { mayCreateProjects, type UserRole } from "@/lib/auth/roles";
 import { BUSINESS_TIMEZONE, todayISO } from "@/lib/domain";
 import { loadError } from "./errors";
 
 export const WORKSPACE_COOKIE = "tm-workspace";
 
-export type Workspace = { id: string; name: string; description: string | null; timezone: string };
+export type Workspace = { id: string; name: string; description: string | null; timezone: string; isPersonal: boolean };
 
 export type Member = {
   userId: string;
@@ -29,14 +30,21 @@ export type Member = {
   team: string | null;
 };
 
-/** Workspaces the current user belongs to (RLS-scoped). */
-
+/**
+ * Workspaces the current user belongs to (RLS-scoped). Super Admin's
+ * company-wide read access would otherwise surface every Operational
+ * Manager's personal workspace here; this keeps only the caller's own
+ * personal workspace (if any), so they can still reach it, while every other
+ * personal workspace is excluded from switchers, target pickers and
+ * dashboards without any change needed at those call sites.
+ */
 export const getMyWorkspaces = cache(async (): Promise<Workspace[]> => {
   const supabase = await createClient();
+  const currentUser = await getCurrentUser();
 
   const { data, error } = await supabase
     .from("workspaces")
-    .select("id, name, description, timezone")
+    .select("id, name, description, timezone, is_personal, created_by")
     .order("name");
 
   if (error) {
@@ -44,20 +52,24 @@ export const getMyWorkspaces = cache(async (): Promise<Workspace[]> => {
     throw new Error(`Failed to load workspaces: ${error.message}`);
   }
 
-  return data ?? [];
+  return (data ?? [])
+    .filter((w) => !w.is_personal || w.created_by === currentUser?.id)
+    .map((w) => ({ id: w.id, name: w.name, description: w.description, timezone: w.timezone, isPersonal: w.is_personal }));
 });
-
-
 
 /**
  * The workspace being viewed. The cookie is only a preference; it is
  * validated against the caller's memberships and RLS still scopes every query.
+ * With no (or a stale) cookie, default to a department workspace, never a
+ * personal one, so the app shell doesn't silently open inside it.
  */
 export const getActiveWorkspace = cache(async (): Promise<Workspace | null> => {
   const workspaces = await getMyWorkspaces();
   if (workspaces.length === 0) return null;
   const preferred = (await cookies()).get(WORKSPACE_COOKIE)?.value;
-  return workspaces.find((w) => w.id === preferred) ?? workspaces[0]!;
+  const preferredWorkspace = workspaces.find((w) => w.id === preferred);
+  if (preferredWorkspace) return preferredWorkspace;
+  return workspaces.find((w) => !w.isPersonal) ?? workspaces[0]!;
 });
 
 export const getWorkspaceMembers = cache(async (workspaceId: string): Promise<Member[]> => {
@@ -89,9 +101,13 @@ export const getWorkspaceMembers = cache(async (workspaceId: string): Promise<Me
     .sort((a, b) => (a.fullName || a.email || "").localeCompare(b.fullName || b.email || ""));
 });
 
-/** Whether the current user may create projects in the workspace (mirrors RLS). */
+/**
+ * Whether the current user may create projects in the workspace (mirrors
+ * RLS). Super Admin is monitoring-only as of Phase 2 (044/046): no branch
+ * here, same as the database. Operational Manager's branch inside
+ * mayCreateProjects is unconditional, matching private.can_create_project.
+ */
 export async function canCreateProjects(workspaceId: string, userId: string, role: UserRole) {
-  if (role === "SUPER_ADMIN") return true;
   const members = await getWorkspaceMembers(workspaceId);
   return mayCreateProjects(role, members.find((m) => m.userId === userId) ?? null);
 }

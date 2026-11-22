@@ -31,28 +31,42 @@ describe("route protection", () => {
 });
 
 describe("roles and permissions", () => {
-  it("recognises only the three defined roles", () => {
+  it("recognises only the four defined roles", () => {
     assert.equal(isRole("SUPER_ADMIN"), true);
+    assert.equal(isRole("OPERATIONAL_MANAGER"), true);
     assert.equal(isRole("OWNER"), false);
     assert.equal(isRole("admin"), false);
   });
 
-  it("orders roles SUPER_ADMIN > ADMIN > INDIVIDUAL", () => {
+  it("orders roles SUPER_ADMIN > ADMIN > OPERATIONAL_MANAGER > INDIVIDUAL", () => {
     assert.equal(hasMinimumRole("SUPER_ADMIN", "ADMIN"), true);
     assert.equal(hasMinimumRole("ADMIN", "SUPER_ADMIN"), false);
     assert.equal(hasMinimumRole("INDIVIDUAL", "ADMIN"), false);
+    // Operational Manager is deliberately NOT >= Admin: it has company-wide
+    // task powers, not Admin's organisation-structure administration.
+    assert.equal(hasMinimumRole("OPERATIONAL_MANAGER", "ADMIN"), false);
+    assert.equal(hasMinimumRole("OPERATIONAL_MANAGER", "INDIVIDUAL"), true);
   });
 
-  it("lets everyone create tasks but only admins and above assign them", () => {
+  it("Phase 2: Super Admin is monitoring-only - no task creation or assignment, personal tasks included", () => {
     assert.equal(getPermissions("INDIVIDUAL").createTasks, true);
     assert.equal(getPermissions("INDIVIDUAL").assignTasks, false);
     assert.equal(getPermissions("ADMIN").assignTasks, true);
-    assert.equal(getPermissions("SUPER_ADMIN").assignTasks, true);
+    assert.equal(getPermissions("SUPER_ADMIN").createTasks, false);
+    assert.equal(getPermissions("SUPER_ADMIN").assignTasks, false);
+    // Operational Manager creates and assigns tasks company-wide.
+    assert.equal(getPermissions("OPERATIONAL_MANAGER").createTasks, true);
+    assert.equal(getPermissions("OPERATIONAL_MANAGER").assignTasks, true);
+    assert.equal(getPermissions("OPERATIONAL_MANAGER").createProjects, true);
+    // Not Admin's organisation-structure administration.
+    assert.equal(getPermissions("OPERATIONAL_MANAGER").viewTeam, false);
+    assert.equal(getPermissions("OPERATIONAL_MANAGER").viewTeamReports, false);
   });
 
   it("lets admins and individuals submit daily reports; super admins only review them", () => {
     assert.equal(getPermissions("INDIVIDUAL").submitDailyReports, true);
     assert.equal(getPermissions("ADMIN").submitDailyReports, true);
+    assert.equal(getPermissions("OPERATIONAL_MANAGER").submitDailyReports, true);
     assert.equal(getPermissions("SUPER_ADMIN").submitDailyReports, false);
     assert.equal(getPermissions("SUPER_ADMIN").viewTeamReports, true);
   });
@@ -63,16 +77,19 @@ describe("roles and permissions", () => {
     assert.equal(getPermissions("SUPER_ADMIN").manageUsers, true);
   });
 
-  it("lets super admins and permitted admins create projects in their own workspaces only", () => {
+  it("lets permitted admins and operational managers create projects; super admin cannot (044/046)", () => {
     const allowed = { canCreateProjects: true };
     const notAllowed = { canCreateProjects: false };
-    assert.equal(mayCreateProjects("SUPER_ADMIN", notAllowed), true);
+    assert.equal(mayCreateProjects("SUPER_ADMIN", notAllowed), false);
     assert.equal(mayCreateProjects("ADMIN", allowed), true);
     assert.equal(mayCreateProjects("ADMIN", notAllowed), false);
     assert.equal(mayCreateProjects("INDIVIDUAL", allowed), false);
+    // Operational Manager is unrestricted by membership (private.can_create_project).
+    assert.equal(mayCreateProjects("OPERATIONAL_MANAGER", null), true);
+    assert.equal(mayCreateProjects("OPERATIONAL_MANAGER", notAllowed), true);
     // Not a member of the workspace: refused for admins, as in RLS; super
-    // admins are company-level since migration 025.
-    assert.equal(mayCreateProjects("SUPER_ADMIN", null), true);
+    // admin has no branch here as of 044.
+    assert.equal(mayCreateProjects("SUPER_ADMIN", null), false);
     assert.equal(mayCreateProjects("ADMIN", null), false);
     assert.equal(mayCreateProjects("INDIVIDUAL", null), false);
   });
@@ -93,9 +110,9 @@ describe("roles and permissions", () => {
     assert.equal(mayCreateClients("SUPER_ADMIN", null), true);
   });
 
-  it("lets super admins, owners/creators and project-managing admins edit projects", () => {
+  it("lets owners/creators and project-managing admins edit projects; super admin cannot (046)", () => {
     const bySa = { ownerId: null, createdBy: "sa", isDefault: false };
-    assert.equal(mayEditProject("SUPER_ADMIN", "sa2", bySa, false), true);
+    assert.equal(mayEditProject("SUPER_ADMIN", "sa2", bySa, false), false);
     assert.equal(mayEditProject("ADMIN", "ad", bySa, true), true, "a super admin's project, admin may manage projects");
     assert.equal(mayEditProject("ADMIN", "ad", bySa, false), false, "restricted admin, not owner");
     assert.equal(mayEditProject("ADMIN", "ad", { ...bySa, ownerId: "ad" }, false), true, "restricted admin who owns it");
@@ -103,9 +120,10 @@ describe("roles and permissions", () => {
     assert.equal(mayEditProject("INDIVIDUAL", "iv", { ...bySa, ownerId: "iv", createdBy: "iv" }, true), false);
   });
 
-  it("restricts /team to admins and above", () => {
+  it("restricts /team to admins and above, deliberately excluding operational managers", () => {
     assert.equal(hasRole("INDIVIDUAL", ROUTE_ROLES["/team"]!), false);
     assert.equal(hasRole("ADMIN", ROUTE_ROLES["/team"]!), true);
+    assert.equal(hasRole("OPERATIONAL_MANAGER", ROUTE_ROLES["/team"]!), false);
   });
 
   it("restricts the HR dashboard and company-wide HR pages to super admins", () => {

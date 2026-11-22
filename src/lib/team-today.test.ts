@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { isCompletedOn } from "./scheduling.ts";
-import { buildTeamToday, teamTotals, type TeamTask } from "./team-today.ts";
+import { buildTeamToday, mergeDailyReports, teamTotals, type TeamTask } from "./team-today.ts";
 
 const today = "2026-10-12";
 const tz = "Asia/Kolkata";
@@ -94,5 +94,36 @@ describe("buildTeamToday", () => {
   it("team totals only include tasks of employees in the view", () => {
     assert.equal(teamTotals([bala!], tasks, today, tz).planned, 2);
     assert.equal(teamTotals([], tasks, today, tz).planned, 0);
+  });
+});
+
+describe("mergeDailyReports (company-wide Team Today: daily reports across department workspaces)", () => {
+  it("associates a morning report with its own employee only", () => {
+    const reports = mergeDailyReports([{ user_id: "u1", morning_submitted_at: "2026-10-12T04:00:00Z", evening_submitted_at: null }]);
+    assert.equal(reports.get("u1")?.morning, true);
+    assert.equal(reports.get("u1")?.evening, false);
+    assert.equal(reports.get("u2"), undefined);
+  });
+
+  it("associates an evening report with its own employee only", () => {
+    const reports = mergeDailyReports([{ user_id: "u1", morning_submitted_at: null, evening_submitted_at: "2026-10-12T12:00:00Z" }]);
+    assert.equal(reports.get("u1")?.evening, true);
+    assert.equal(reports.get("u1")?.morning, false);
+  });
+
+  it("OR-combines rows for the same user_id from different department workspaces, never crossing employees", () => {
+    const reports = mergeDailyReports([
+      { user_id: "u1", morning_submitted_at: "2026-10-12T04:00:00Z", evening_submitted_at: null },
+      { user_id: "u1", morning_submitted_at: null, evening_submitted_at: "2026-10-12T12:00:00Z" },
+      { user_id: "u2", morning_submitted_at: null, evening_submitted_at: null },
+    ]);
+    assert.deepEqual(reports.get("u1"), { morning: true, evening: true });
+    assert.deepEqual(reports.get("u2"), { morning: false, evening: false });
+  });
+
+  it("leaves an employee with no report row unmarked, read back as \"Not yet\"", () => {
+    const reports = mergeDailyReports([]);
+    assert.equal(reports.get("u1")?.morning ?? false, false);
+    assert.equal(reports.get("u1")?.evening ?? false, false);
   });
 });

@@ -5,16 +5,26 @@ import { ROLE_LABELS } from "@/lib/auth/roles";
 import { displayName } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/server";
 import { uniqueById } from "@/lib/task-query";
-import { buildTeamToday, teamTotals } from "@/lib/team-today";
+import { buildTeamToday, mergeDailyReports, teamTotals } from "@/lib/team-today";
 
 import { listTasks, toTaskRows } from "./tasks";
-import { getWorkspaceMembers, workspaceToday, type Workspace } from "./workspace";
+import { departmentWorkspacesOf, getCompanyWideMembers, getMyWorkspaces, getWorkspaceMembers, workspaceToday, type Workspace } from "./workspace";
 import { loadError } from "./errors";
 
 /**
  * Employee-wise "today" for the dashboard and Team Today page. All data is
- * RLS-scoped: super admins see the whole workspace; admins see tasks they
- * created/assigned/are on, their projects' tasks and their direct reports'.
+ * RLS-scoped: super admins see every department (non-personal) workspace,
+ * company-wide (048/Employees-page precedent); admins see tasks they
+ * created/assigned/are on, their projects' tasks and their direct reports',
+ * scoped to the active workspace only, unchanged. The dashboard only calls
+ * this for Admin, so the super-admin branch below is exercised solely by
+ * Team Today.
+ *
+ * "today" and its timezone stay anchored to the active workspace (unchanged
+ * semantics) even for the super-admin company-wide view: department
+ * workspaces share the business timezone (Asia/Kolkata) in practice, and
+ * buildTeamToday/teamTotals take one today/timeZone per call, so a single
+ * anchor is the correct answer for one company-wide "today".
  */
 export async function loadTeamToday(session: Session, workspace: Workspace) {
   const today = workspaceToday(workspace);
@@ -26,17 +36,27 @@ export async function loadTeamToday(session: Session, workspace: Workspace) {
   // window is a superset of "today" in any timezone (buildTeamToday applies the
   // exact local-day check), so the rest of the history is not loaded.
   const completedAfter = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-  const [openTasks, recentlyCompleted, members, reportsRes] = await Promise.all([
-    listTasks({ workspaceId: workspace.id, openOnly: true }),
-    listTasks({ workspaceId: workspace.id, status: "COMPLETED", completedAfter }),
-    getWorkspaceMembers(workspace.id),
-    supabase
-      .from("daily_reports")
-      .select("user_id, morning_submitted_at, evening_submitted_at")
-      .eq("workspace_id", workspace.id)
-      .eq("report_date", today),
+  const workspaceIds = isSuperAdmin ? departmentWorkspacesOf(await getMyWorkspaces()).map((w) => w.id) : [workspace.id];
+
+  const [openTasks, recentlyCompleted, members, reportRows] = await Promise.all([
+    Promise.all(workspaceIds.map((id) => listTasks({ workspaceId: id, openOnly: true }))).then((lists) => lists.flat()),
+    Promise.all(workspaceIds.map((id) => listTasks({ workspaceId: id, status: "COMPLETED", completedAfter }))).then((lists) => lists.flat()),
+    isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
+    Promise.all(
+      workspaceIds.map(async (id) => {
+        const { data, error } = await supabase
+          .from("daily_reports")
+          .select("user_id, morning_submitted_at, evening_submitted_at")
+          .eq("workspace_id", id)
+          .eq("report_date", today);
+        if (error) throw loadError("Failed to load daily reports", error);
+        return data ?? [];
+      }),
+    ).then((lists) => lists.flat()),
   ]);
-  if (reportsRes.error) throw loadError("Failed to load daily reports", reportsRes.error);
+  // Tasks are workspace-owned, so a task id can repeat here only if the same
+  // task satisfied both queries; task ids are globally unique, never shared
+  // across workspaces, so merging per-workspace lists adds no new collision.
   const tasks = uniqueById([...openTasks, ...recentlyCompleted]);
 
   const active = members.filter((m) => m.isActive);
@@ -46,9 +66,7 @@ export async function loadTeamToday(session: Session, workspace: Workspace) {
     (m) => isSuperAdmin || m.userId === me || m.managerId === me || visibleAssignees.has(m.userId),
   );
 
-  const reports = new Map(
-    reportsRes.data.map((r) => [r.user_id, { morning: Boolean(r.morning_submitted_at), evening: Boolean(r.evening_submitted_at) }]),
-  );
+  const reports = mergeDailyReports(reportRows);
 
   const teamTasks = tasks.map((t) => ({
     id: t.id,

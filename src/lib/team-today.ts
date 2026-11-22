@@ -17,6 +17,30 @@ export type TeamTask = {
 
 export type Employee = { userId: string; name: string };
 
+export type DailyReportRow = { user_id: string; morning_submitted_at: unknown; evening_submitted_at: unknown };
+
+/**
+ * One morning/evening submission flag per employee, keyed strictly by
+ * user_id -- never by which workspace a row came from, so a report is never
+ * attributed to the wrong employee. Rows for the same user_id (an employee
+ * who is a member of more than one department workspace, each queried
+ * separately) are OR-combined: a submission in any one of them counts, so
+ * query ordering across workspaces never hides a real submission. An
+ * employee absent from every row stays unmarked (checked with
+ * `reports.get(id)?.morning ?? false`), i.e. "Not yet".
+ */
+export function mergeDailyReports(rows: readonly DailyReportRow[]): Map<string, { morning: boolean; evening: boolean }> {
+  const reports = new Map<string, { morning: boolean; evening: boolean }>();
+  for (const r of rows) {
+    const prev = reports.get(r.user_id) ?? { morning: false, evening: false };
+    reports.set(r.user_id, {
+      morning: prev.morning || Boolean(r.morning_submitted_at),
+      evening: prev.evening || Boolean(r.evening_submitted_at),
+    });
+  }
+  return reports;
+}
+
 export type EmployeeDay = Employee & {
   /** Today's workload (open + carried + due today) plus anything completed today. */
   planned: number;

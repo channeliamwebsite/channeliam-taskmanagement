@@ -6,6 +6,7 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { mayCreateProjects, type UserRole } from "@/lib/auth/roles";
+import { departmentWorkspacesOf, mergeCompanyMembers } from "@/lib/company-members";
 import { BUSINESS_TIMEZONE, todayISO } from "@/lib/domain";
 import { loadError } from "./errors";
 
@@ -99,6 +100,27 @@ export const getWorkspaceMembers = cache(async (workspaceId: string): Promise<Me
       team: row.profile!.team,
     }))
     .sort((a, b) => (a.fullName || a.email || "").localeCompare(b.fullName || b.email || ""));
+});
+
+export type CompanyMember = Member & { workspaceId: string };
+
+export { departmentWorkspacesOf, mergeCompanyMembers };
+
+/**
+ * Every employee across every department (non-personal) workspace, for a
+ * company-wide view (Super Admin's Employees page). Reuses getWorkspaceMembers
+ * per department workspace, so it carries the same "company admins read all"
+ * RLS (025) that already lets a super admin read any workspace's members --
+ * no new RLS is needed. getMyWorkspaces() already excludes every Operational
+ * Manager's personal workspace but the caller's own (042/043); departmentWorkspacesOf
+ * additionally drops that one too, so no personal workspace is ever included.
+ */
+export const getCompanyWideMembers = cache(async (): Promise<CompanyMember[]> => {
+  const departmentWorkspaces = departmentWorkspacesOf(await getMyWorkspaces());
+  const perWorkspace = await Promise.all(
+    departmentWorkspaces.map(async (w) => ({ workspaceId: w.id, members: await getWorkspaceMembers(w.id) })),
+  );
+  return mergeCompanyMembers(perWorkspace);
 });
 
 /**

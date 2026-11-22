@@ -9,7 +9,7 @@ import { ROLE_LABELS, ROLES, ROUTE_ROLES } from "@/lib/auth/roles";
 import { listActiveSuperAdmins } from "@/lib/data/employee-admin";
 import { getAccountStatuses } from "@/lib/data/employees";
 import { listTasks } from "@/lib/data/tasks";
-import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { departmentWorkspacesOf, getCompanyWideMembers, getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { TEAM_OPTIONS, displayName, isOverdue } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
@@ -31,10 +31,18 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
   const active = get("active");
 
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  // Super Admin sees every department workspace's employees and task counts,
+  // company-wide (previously scoped to just the active workspace); Admin and
+  // Individual are unchanged.
+  const departmentWorkspaces = isSuperAdmin ? departmentWorkspacesOf(await getMyWorkspaces()) : [];
   const [members, tasks, superAdmins] = await Promise.all([
-    getWorkspaceMembers(workspace.id),
+    isSuperAdmin
+      ? getCompanyWideMembers()
+      : getWorkspaceMembers(workspace.id).then((ms) => ms.map((m) => ({ ...m, workspaceId: workspace.id }))),
     // Open/overdue/blocked counts below only involve unfinished tasks.
-    listTasks({ workspaceId: workspace.id, openOnly: true }),
+    isSuperAdmin
+      ? Promise.all(departmentWorkspaces.map((w) => listTasks({ workspaceId: w.id, openOnly: true }))).then((lists) => lists.flat())
+      : listTasks({ workspaceId: workspace.id, openOnly: true }),
     // Reporting-manager options: only super admins add or edit employees here.
     isSuperAdmin ? listActiveSuperAdmins() : Promise.resolve([]),
   ]);
@@ -82,7 +90,9 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
     <>
       <PageHeader
         title="Employees"
-        description={`${members.length} employee${members.length === 1 ? "" : "s"} in ${workspace.name}${isSuperAdmin ? "" : " · counts reflect tasks you can see"}`}
+        description={`${members.length} employee${members.length === 1 ? "" : "s"}${
+          isSuperAdmin ? " across all departments" : ` in ${workspace.name} · counts reflect tasks you can see`
+        }`}
         actions={isSuperAdmin ? <AddEmployeeButton workspaceId={workspace.id} managers={managers} departments={departmentOptions} /> : null}
       />
 
@@ -222,7 +232,7 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
                       {isSuperAdmin ? (
                         <td className="px-3 py-2.5 text-right">
                           <MemberActions
-                            workspaceId={workspace.id}
+                            workspaceId={m.workspaceId}
                             isSelf={m.userId === me}
                             member={{
                               userId: m.userId,
@@ -268,7 +278,7 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
                     </span>
                     {isSuperAdmin ? (
                       <MemberActions
-                        workspaceId={workspace.id}
+                        workspaceId={m.workspaceId}
                         isSelf={m.userId === me}
                         member={{
                           userId: m.userId,

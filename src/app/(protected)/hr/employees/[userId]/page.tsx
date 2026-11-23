@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PageHeader, Section } from "@/components/app/page-header";
-import { HrProfileForm, IdentityForm } from "@/components/hr/profile-forms";
+import { EmployeeIdForm, HrProfileForm, IdentityForm } from "@/components/hr/profile-forms";
 import { ProfileView } from "@/components/hr/profile-view";
 import { DayTable, LeaveHistoryTable, TotalsGrid } from "@/components/hr/report-views";
 import { ROUTE_ROLES } from "@/lib/auth/roles";
@@ -60,6 +60,9 @@ export default async function EmployeeDetailPage({ params, searchParams }: PageP
         <div className="grid content-start gap-4">
           <Section title="Employment">
             <EmploymentForm member={admin.member} isSelf={isSelf} managers={admin.managers} departments={admin.departments} />
+          </Section>
+          <Section title="Employee ID">
+            <EmployeeIdForm userId={userId} employeeCode={profile.employee.employeeCode} />
           </Section>
           <Section title="HR details">
             <HrProfileForm

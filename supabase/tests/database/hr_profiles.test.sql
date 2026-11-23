@@ -9,7 +9,7 @@ select * from no_plan();
 -- ---------------------------------------------------------------------------
 select is((select count(*)::int from public.profiles p where not exists (select 1 from public.hr_employee_profiles h where h.user_id = p.id)), 0,
   'every existing employee has an HR profile');
-select is((select count(*)::int from public.hr_employee_profiles where employee_code !~ '^CH-[0-9]{4,}$'), 0, 'every employee ID looks like CH-0001');
+select is((select count(*)::int from public.hr_employee_profiles where employee_code !~ '^IM[0-9]{3}$'), 0, 'every employee ID looks like IM021');
 
 -- Fixtures (as postgres): sa (super admin), ad (admin), iv and iv2 (individuals).
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -21,12 +21,12 @@ update public.profiles set role = 'SUPER_ADMIN' where id = 'a8000000-0000-4000-8
 update public.profiles set role = 'ADMIN' where id = 'a8000000-0000-4000-8000-000000000002';
 
 select is((select count(*)::int from public.hr_employee_profiles where user_id::text like 'a8000000-%'), 4, 'a new employee gets an HR profile with their account');
-select ok((select substr(max(employee_code), 4)::int > 0 from public.hr_employee_profiles where user_id::text like 'a8000000-%'), 'with an employee ID');
-select ok((select (select substr(employee_code, 4)::int from public.hr_employee_profiles where user_id = 'a8000000-0000-4000-8000-000000000004')
-                > (select substr(employee_code, 4)::int from public.hr_employee_profiles where user_id = 'a8000000-0000-4000-8000-000000000003')),
+select ok((select substr(max(employee_code), 3)::int > 0 from public.hr_employee_profiles where user_id::text like 'a8000000-%'), 'with an employee ID');
+select ok((select (select substr(employee_code, 3)::int from public.hr_employee_profiles where user_id = 'a8000000-0000-4000-8000-000000000004')
+                > (select substr(employee_code, 3)::int from public.hr_employee_profiles where user_id = 'a8000000-0000-4000-8000-000000000003')),
   'IDs are issued in order');
 select is((select count(*)::int from (select employee_code from public.hr_employee_profiles group by 1 having count(*) > 1) d), 0, 'IDs are unique');
-select throws_ok($$ update public.hr_employee_profiles set employee_code = 'CH-9999' where user_id = 'a8000000-0000-4000-8000-000000000003' $$,
+select throws_ok($$ update public.hr_employee_profiles set employee_code = 'IM999' where user_id = 'a8000000-0000-4000-8000-000000000003' $$,
   '55000', 'Employee IDs cannot be changed.', 'an employee ID can never be changed, not even directly in the database');
 
 -- ---------------------------------------------------------------------------
@@ -37,7 +37,7 @@ set local request.jwt.claims to '{"sub":"a8000000-0000-4000-8000-000000000001","
 select lives_ok($$ update public.hr_employee_profiles set phone = '+91 98450 00000', date_of_birth = '1994-05-01', joining_date = '2024-06-03',
                    employment_type = 'FULL_TIME', employment_status = 'PROBATION', personal_email = 'iv.personal@mail.test', gender = 'FEMALE'
                    where user_id = 'a8000000-0000-4000-8000-000000000003' $$, 'a super admin edits an HR profile');
-select throws_ok($$ update public.hr_employee_profiles set employee_code = 'CH-0001' where user_id = 'a8000000-0000-4000-8000-000000000003' $$,
+select throws_ok($$ update public.hr_employee_profiles set employee_code = 'IM001' where user_id = 'a8000000-0000-4000-8000-000000000003' $$,
   '42501', null, 'the ID column cannot even be addressed by a signed-in user');
 select throws_ok($$ update public.hr_employee_profiles set phone = 'call me' where user_id = 'a8000000-0000-4000-8000-000000000003' $$, '23514', null, 'invalid phone numbers are refused');
 reset role;
@@ -57,6 +57,39 @@ set local request.jwt.claims to '{"sub":"a8000000-0000-4000-8000-000000000002","
 select is((select count(*)::int from public.hr_employee_profiles where user_id <> 'a8000000-0000-4000-8000-000000000002'), 0, 'a workspace admin sees no one else''s HR profile');
 reset role;
 set local request.jwt.claims to '';
+
+-- ---------------------------------------------------------------------------
+-- Employee ID edits (051): a super admin may change one afterwards, through
+-- hr_set_employee_code only -- format and uniqueness still enforced by the
+-- column's own constraints, and the change is still fully audited.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a8000000-0000-4000-8000-000000000003","role":"authenticated"}';
+select throws_ok($$ select public.hr_set_employee_code('a8000000-0000-4000-8000-000000000003', 'IM900') $$,
+  '42501', null, 'an employee cannot change their own employee ID');
+set local request.jwt.claims to '{"sub":"a8000000-0000-4000-8000-000000000002","role":"authenticated"}';
+select throws_ok($$ select public.hr_set_employee_code('a8000000-0000-4000-8000-000000000003', 'IM900') $$,
+  '42501', null, 'nor can a workspace admin');
+set local request.jwt.claims to '{"sub":"a8000000-0000-4000-8000-000000000001","role":"authenticated"}';
+select throws_ok($$ select public.hr_set_employee_code('a8000000-0000-4000-8000-000000000003', 'bad-id') $$,
+  '23514', null, 'an invalid employee ID is refused');
+select throws_ok($$ select public.hr_set_employee_code('a8000000-0000-4000-8000-000000000003', '') $$,
+  '23514', null, 'an empty employee ID is refused');
+select throws_ok($$ select public.hr_set_employee_code('a0000000-0000-4000-8000-000000000099', 'IM900') $$,
+  'P0002', 'Employee not found.', 'changing an unknown employee''s ID is refused');
+select lives_ok($$ select public.hr_set_employee_code('a8000000-0000-4000-8000-000000000003', 'IM900') $$,
+  'a super admin changes an employee ID to a new, valid, unique one');
+select is((select employee_code from public.hr_employee_profiles where user_id = 'a8000000-0000-4000-8000-000000000003'), 'IM900', 'the new ID is saved');
+select throws_ok($$ select public.hr_set_employee_code('a8000000-0000-4000-8000-000000000004', 'IM900') $$,
+  '23505', null, 'an employee ID already in use by someone else is refused');
+reset role;
+set local request.jwt.claims to '';
+select throws_ok($$ update public.hr_employee_profiles set employee_code = 'IM901' where user_id = 'a8000000-0000-4000-8000-000000000003' $$,
+  '55000', 'Employee IDs cannot be changed.', 'the guard is not left open after hr_set_employee_code returns -- a direct UPDATE is still refused');
+select is((select details::text from public.attendance_audit_log where action = 'HR_PROFILE_UPDATED' and target_user_id = 'a8000000-0000-4000-8000-000000000003'
+           order by id desc limit 1), '{"fields": ["employee_code"]}', 'the ID change is audited by field name only');
+select is((select actor_id from public.attendance_audit_log where action = 'HR_PROFILE_UPDATED' and target_user_id = 'a8000000-0000-4000-8000-000000000003'
+           order by id desc limit 1), 'a8000000-0000-4000-8000-000000000001'::uuid, 'with the super admin who changed it');
 
 -- ---------------------------------------------------------------------------
 -- Identity: PAN ciphertext and last four, Aadhaar last four

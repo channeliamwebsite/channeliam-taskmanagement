@@ -83,6 +83,26 @@ export async function updateHrProfile(userId: string, input: Partial<HrProfileIn
 }
 
 /**
+ * Changes an employee's ID (super admins only), through hr_set_employee_code
+ * (051): format and uniqueness are enforced by the column's own constraints,
+ * the change is audited the same way every other HR profile edit is, and a
+ * direct UPDATE of this column is refused regardless -- only this RPC can
+ * change it. IM021 (IM + 3 digits), matching the database's own CHECK.
+ */
+export async function updateEmployeeCode(userId: string, employeeCode: string): Promise<ActionResult> {
+  const actor = await superAdmin();
+  if (!actor.ok) return actor;
+  if (!isUuid(userId)) return fail("Invalid employee.");
+  const code = (employeeCode ?? "").trim().toUpperCase();
+  if (!/^IM[0-9]{3}$/.test(code)) return fail("Enter a valid employee ID (e.g. IM021).");
+
+  const { error } = await actor.supabase.rpc("hr_set_employee_code", { p_user_id: userId, p_employee_code: code });
+  if (error) return fail(dbError(error, "Could not save the employee ID."));
+  refresh();
+  return ok();
+}
+
+/**
  * Sets or clears the PAN and/or Aadhaar last four. Pass undefined to leave a
  * value unchanged, "" to clear it. The PAN is encrypted here before it leaves
  * the server process.

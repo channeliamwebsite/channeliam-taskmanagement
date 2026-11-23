@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { revealPan, setIdentity, updateHrProfile, type HrProfileInput } from "@/lib/actions/hr-profiles";
+import { revealPan, setIdentity, updateEmployeeCode, updateHrProfile, type HrProfileInput } from "@/lib/actions/hr-profiles";
 import { maskAadhaar, maskPan } from "@/lib/hr/pan";
 
 import { GENDER_LABELS, STATUS_LABELS, TYPE_LABELS } from "./profile-view";
@@ -86,6 +86,50 @@ export function HrProfileForm({ userId, initial }: { userId: string; initial: Hr
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Super admin: changes an employee's ID. Kept as its own field and button
+ * (not bundled into HrProfileForm's single save) so saving an unrelated HR
+ * field never also submits this rarely-changed, audited one by accident.
+ */
+export function EmployeeIdForm({ userId, employeeCode }: { userId: string; employeeCode: string | null }) {
+  const [pending, startTransition] = useTransition();
+  const [value, setValue] = useState(employeeCode ?? "");
+  const changed = value.trim().toUpperCase() !== (employeeCode ?? "");
+
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor="hr-employee-code">Employee ID</Label>
+      <div className="flex gap-2">
+        <Input
+          id="hr-employee-code"
+          value={value}
+          onChange={(e) => setValue(e.target.value.toUpperCase())}
+          maxLength={10}
+          placeholder="IM021"
+          className="h-9 font-mono"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Button
+          variant="outline"
+          disabled={pending || !changed || !value.trim()}
+          onClick={() =>
+            startTransition(async () => {
+              const r = await updateEmployeeCode(userId, value);
+              if (r.ok) toast.success("Employee ID saved.");
+              else toast.error(r.error);
+            })
+          }
+        >
+          {pending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+          Save
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Format: IM followed by 3 digits (e.g. IM021). Must be unique.</p>
+    </div>
   );
 }
 

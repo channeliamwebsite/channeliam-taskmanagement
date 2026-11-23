@@ -1802,6 +1802,7 @@ export type Database = {
         }[]
       }
       hr_log_pan_reveal: { Args: { p_reason: string; p_user_id: string }; Returns: undefined }
+      hr_set_employee_code: { Args: { p_employee_code: string; p_user_id: string }; Returns: undefined }
       hr_set_identity: { Args: { p_aadhaar_last4: string; p_pan_ciphertext: string; p_pan_key_version: number; p_pan_last4: string; p_update_aadhaar: boolean; p_update_pan: boolean; p_user_id: string }; Returns: undefined }
       hr_working_days: { Args: { p_end: string; p_start: string }; Returns: number }
       project_task_counts: {

@@ -90,7 +90,6 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[taskId]">)
               canManage={canEdit}
               canUpdateStatus={canUpdateStatus}
               canDelete={canDelete}
-              subtaskCount={task.subtasks.length}
               members={memberOptions}
               parentCandidates={parentCandidates}
               redirectTo={task.parent ? `/tasks/${task.parent.id}` : `/projects/${task.projectId}`}

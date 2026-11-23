@@ -31,7 +31,6 @@ export function TaskHeaderActions({
   canManage,
   canUpdateStatus,
   canDelete,
-  subtaskCount,
   editValues,
   parentCandidates,
   members,
@@ -43,7 +42,6 @@ export function TaskHeaderActions({
   canManage: boolean;
   canUpdateStatus: boolean;
   canDelete: boolean;
-  subtaskCount: number;
   editValues: TaskFormValues;
   parentCandidates: { id: string; title: string }[];
   members: MemberOption[];
@@ -54,10 +52,15 @@ export function TaskHeaderActions({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const impact = useDeletionImpact(deleteOpen, () => getTaskDeletionImpact(taskId));
-  // Tasks with history are cancelled, not deleted (migration 027 refuses it too).
-  const hasHistory =
-    impact.status === "ready" &&
-    impact.data.subtasks + impact.data.comments + impact.data.attachments + impact.data.timeEntries > 0;
+  // Comments, attachments and logged time are real work history (027) and
+  // still block deletion of the whole subtree; subtasks alone no longer do
+  // (050) -- deleting a task now deletes every descendant with it,
+  // atomically. A descendant named in a daily report or meeting follow-up is
+  // a third guard enforced only by the database, not reflected here;
+  // deleteTask below surfaces it as an error if it's ever hit.
+  const hasKeptHistory =
+    impact.status === "ready" && impact.data.comments + impact.data.attachments + impact.data.timeEntries > 0;
+  const descendantCount = impact.status === "ready" ? impact.data.subtasks : 0;
 
   return (
     <>
@@ -106,12 +109,14 @@ export function TaskHeaderActions({
         onOpenChange={setDeleteOpen}
         title={`Delete “${title}”?`}
         description={
-          subtaskCount || hasHistory
-            ? "This task has history (subtasks, comments, time or attachments), so it cannot be deleted. Set its status to Cancelled instead; its history is kept."
-            : "This task has no history and will be permanently deleted. Assigned people are not affected. A task named in a daily report or meeting follow-up cannot be deleted."
+          hasKeptHistory
+            ? "This task or one of its subtasks has comments, attachments or logged time, so it cannot be deleted. Set its status to Cancelled instead; its history is kept."
+            : descendantCount
+              ? `This task and all ${descendantCount} of its subtask${descendantCount === 1 ? "" : "s"} will be permanently deleted. Assigned people are not affected. A task named in a daily report or meeting follow-up cannot be deleted.`
+              : "This task has no subtasks or history and will be permanently deleted. Assigned people are not affected. A task named in a daily report or meeting follow-up cannot be deleted."
         }
         pending={pending}
-        confirmDisabled={impact.status !== "ready" || Boolean(subtaskCount) || hasHistory}
+        confirmDisabled={impact.status !== "ready" || hasKeptHistory}
         onConfirm={() =>
           startTransition(async () => {
             const r = await deleteTask(taskId);

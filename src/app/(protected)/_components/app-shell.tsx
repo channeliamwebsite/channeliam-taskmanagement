@@ -142,6 +142,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
   // organisation-structure or HR pages (/team, /hr, /client-reports) that
   // superAdminSections links to and that Operational Manager cannot open
   // (ROUTE_ROLES). Its own My Day/My Tasks/Task Board stay, same as Admin.
+  // Team Today is company-wide here (ROUTE_ROLES, loadTeamToday), unlike
+  // Admin's single-workspace view.
   const operationalManagerSections: NavSection[] = [
     {
       title: "My work",
@@ -150,6 +152,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
         { href: "/tasks", label: "My Tasks", icon: "tasks" },
         { href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" },
         { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+        { href: "/team-today", label: "Team Today", icon: "teamtoday" },
         { href: "/tasks?scope=all", label: "Tasks", icon: "tasks" },
         { href: "/projects", label: "Projects", icon: "projects" },
         { href: "/clients", label: "Clients", icon: "clients" },

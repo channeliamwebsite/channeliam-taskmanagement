@@ -127,6 +127,13 @@ describe("roles and permissions", () => {
     assert.equal(hasRole("OPERATIONAL_MANAGER", ROUTE_ROLES["/team"]!), false);
   });
 
+  it("grants /team-today to operational managers too, unlike /team", () => {
+    assert.equal(hasRole("SUPER_ADMIN", ROUTE_ROLES["/team-today"]!), true);
+    assert.equal(hasRole("ADMIN", ROUTE_ROLES["/team-today"]!), true);
+    assert.equal(hasRole("OPERATIONAL_MANAGER", ROUTE_ROLES["/team-today"]!), true);
+    assert.equal(hasRole("INDIVIDUAL", ROUTE_ROLES["/team-today"]!), false);
+  });
+
   it("restricts the HR dashboard and company-wide HR pages to super admins", () => {
     assert.equal(hasRole("SUPER_ADMIN", ROUTE_ROLES["/hr"]!), true);
     assert.equal(hasRole("ADMIN", ROUTE_ROLES["/hr"]!), false);

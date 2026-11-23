@@ -82,10 +82,21 @@ export async function listClients(
   }));
 }
 
-/** Client choices for the task dialog: every client of the workspace (RLS-scoped), names only. */
-export async function listClientOptions(workspaceId: string): Promise<{ id: string; name: string }[]> {
+/**
+ * Client choices for the task dialog: every client of the workspace
+ * (RLS-scoped), names only.
+ * @param opts.workspaceIds Company-wide callers only (Super Admin,
+ * Operational Manager): every department workspace to list at once, instead
+ * of `workspaceId`.
+ */
+export async function listClientOptions(
+  workspaceId: string,
+  opts: { workspaceIds?: string[] } = {},
+): Promise<{ id: string; name: string }[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("clients").select("id, name").eq("workspace_id", workspaceId).order("name");
+  let query = supabase.from("clients").select("id, name");
+  query = opts.workspaceIds ? query.in("workspace_id", opts.workspaceIds) : query.eq("workspace_id", workspaceId);
+  const { data, error } = await query.order("name");
   if (error) throw loadError("Failed to load clients", error);
   return data;
 }

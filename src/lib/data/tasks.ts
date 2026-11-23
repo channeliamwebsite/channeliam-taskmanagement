@@ -459,7 +459,10 @@ export function toTaskRows(tasks: TaskSummary[], session: Session, today = today
     canUpdateStatus:
       role === "SUPER_ADMIN" ||
       t.assignees.some((a) => a.userId === userId) ||
-      (role === "ADMIN" && (t.createdBy === userId || t.assignees.some((a) => a.assignedBy === userId))),
+      (role === "ADMIN" && (t.createdBy === userId || t.assignees.some((a) => a.assignedBy === userId))) ||
+      // Mirrors canEditOrDeleteOwnTaskAs (045): Operational Manager only for
+      // tasks it personally created.
+      (role === "OPERATIONAL_MANAGER" && t.createdBy === userId),
   }));
 }
 

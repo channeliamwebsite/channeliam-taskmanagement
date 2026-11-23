@@ -13,7 +13,7 @@ import { getTaskTitles, listTasks } from "@/lib/data/tasks";
 import { listProjectOptions } from "@/lib/data/projects";
 import { loadTeamToday } from "@/lib/data/team-today-data";
 import { displayName, formatDate, isWorkingDay } from "@/lib/domain";
-import { workspaceToday } from "@/lib/data/workspace";
+import { departmentWorkspacesOf, getMyWorkspaces, workspaceToday } from "@/lib/data/workspace";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
 
@@ -25,13 +25,20 @@ export default async function TeamTodayPage() {
 
   // Super admins have no My Day, so today's meetings live here (decided
   // 2026-11-06): recurring daily links plus meetings dated today, shown only on
-  // working days (not weekly offs or public holidays).
+  // working days (not weekly offs or public holidays). Unchanged for
+  // Operational Manager: it keeps its own My Day, so this stays Super Admin only.
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  // Operational Manager: same company-wide projects/clients as the rest of
+  // its pages (Dashboard, Projects, Clients), so "Assign task" can target any
+  // department, matching the company-wide employee rows loadTeamToday now
+  // returns for this role too.
+  const isCompanyWideReader = isSuperAdmin || session.profile.role === "OPERATIONAL_MANAGER";
+  const departmentWorkspaceIds = isCompanyWideReader ? departmentWorkspacesOf(await getMyWorkspaces()).map((w) => w.id) : undefined;
   const today = workspaceToday(workspace);
   const [data, projects, clientOptions, meetingLinks, holidays, meetingRecords, openTasks] = await Promise.all([
     loadTeamToday(session, workspace),
-    listProjectOptions(workspace.id),
-    listClientOptions(workspace.id),
+    listProjectOptions(workspace.id, { workspaceIds: departmentWorkspaceIds }),
+    listClientOptions(workspace.id, { workspaceIds: departmentWorkspaceIds }),
     isSuperAdmin ? listMeetingLinks(workspace.id, { activeOnly: true }) : Promise.resolve([]),
     isSuperAdmin ? listHolidays(today, today) : Promise.resolve([]),
     isSuperAdmin ? listMeetingRecords(workspace.id, today, today) : Promise.resolve({ available: false, records: [] }),
@@ -61,7 +68,7 @@ export default async function TeamTodayPage() {
     <>
       <PageHeader
         title="Team Today"
-        description={`${formatDate(data.today)} · ${session.profile.role === "SUPER_ADMIN" ? "everyone, across all departments" : `your team in ${workspace.name}`}`}
+        description={`${formatDate(data.today)} · ${isCompanyWideReader ? "everyone, across all departments" : `your team in ${workspace.name}`}`}
         actions={
           session.permissions.createTasks ? (
             <NewTaskButton projects={projects} clients={clientOptions} members={memberOptions} workspaceId={workspace.id} label="Assign task" />

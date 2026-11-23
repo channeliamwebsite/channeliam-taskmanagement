@@ -13,42 +13,48 @@ import { loadError } from "./errors";
 
 /**
  * Employee-wise "today" for the dashboard and Team Today page. All data is
- * RLS-scoped: super admins see every department (non-personal) workspace,
- * company-wide (048/Employees-page precedent); admins see tasks they
+ * RLS-scoped: super admins and operational managers see every department
+ * (non-personal) workspace, company-wide (048/Employees-page precedent;
+ * Team Today extended the same way for Operational Manager) --
+ * getMyWorkspaces() already excludes every other Operational Manager's
+ * personal workspace, and departmentWorkspacesOf() excludes personal
+ * workspaces entirely (including the caller's own), so this company-wide
+ * fetch never crosses into any personal workspace; admins see tasks they
  * created/assigned/are on, their projects' tasks and their direct reports',
  * scoped to the active workspace only, unchanged. The dashboard only calls
- * this for Admin, so the super-admin branch below is exercised solely by
+ * this for Admin, so the company-wide branch below is exercised solely by
  * Team Today.
  *
  * "today" and its timezone stay anchored to the active workspace (unchanged
- * semantics) even for the super-admin company-wide view: department
- * workspaces share the business timezone (Asia/Kolkata) in practice, and
- * buildTeamToday/teamTotals take one today/timeZone per call, so a single
- * anchor is the correct answer for one company-wide "today".
+ * semantics) even for the company-wide view: department workspaces share the
+ * business timezone (Asia/Kolkata) in practice, and buildTeamToday/teamTotals
+ * take one today/timeZone per call, so a single anchor is the correct answer
+ * for one company-wide "today".
  */
 export async function loadTeamToday(session: Session, workspace: Workspace) {
   const today = workspaceToday(workspace);
   const me = session.user.id;
-  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  const role = session.profile.role;
+  const isCompanyWideReader = role === "SUPER_ADMIN" || role === "OPERATIONAL_MANAGER";
   const supabase = await createClient();
 
   // Today's numbers only need open tasks and tasks completed today; the 48-hour
   // window is a superset of "today" in any timezone (buildTeamToday applies the
   // exact local-day check), so the rest of the history is not loaded.
   const completedAfter = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-  const workspaceIds = isSuperAdmin ? departmentWorkspacesOf(await getMyWorkspaces()).map((w) => w.id) : [workspace.id];
+  const workspaceIds = isCompanyWideReader ? departmentWorkspacesOf(await getMyWorkspaces()).map((w) => w.id) : [workspace.id];
 
   // Single query per source (not one per department workspace): tasks.ts and
   // the daily_reports table both support `workspace_id in (...)` directly, so
-  // Super Admin's company-wide fetch is the same number of Supabase round
-  // trips as Admin's single-workspace one, not N of them.
+  // the company-wide fetch is the same number of Supabase round trips as
+  // Admin's single-workspace one, not N of them.
   const [openTasks, recentlyCompleted, members, reportRows] = await Promise.all([
-    listTasks({ workspaceId: workspace.id, workspaceIds: isSuperAdmin ? workspaceIds : undefined, openOnly: true }),
-    listTasks({ workspaceId: workspace.id, workspaceIds: isSuperAdmin ? workspaceIds : undefined, status: "COMPLETED", completedAfter }),
-    isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
+    listTasks({ workspaceId: workspace.id, workspaceIds: isCompanyWideReader ? workspaceIds : undefined, openOnly: true }),
+    listTasks({ workspaceId: workspace.id, workspaceIds: isCompanyWideReader ? workspaceIds : undefined, status: "COMPLETED", completedAfter }),
+    isCompanyWideReader ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
     (async () => {
       let query = supabase.from("daily_reports").select("user_id, morning_submitted_at, evening_submitted_at").eq("report_date", today);
-      query = isSuperAdmin ? query.in("workspace_id", workspaceIds) : query.eq("workspace_id", workspace.id);
+      query = isCompanyWideReader ? query.in("workspace_id", workspaceIds) : query.eq("workspace_id", workspace.id);
       const { data, error } = await query;
       if (error) throw loadError("Failed to load daily reports", error);
       return data ?? [];
@@ -63,7 +69,7 @@ export async function loadTeamToday(session: Session, workspace: Workspace) {
   const visibleAssignees = new Set(tasks.flatMap((t) => t.assignees.map((a) => a.userId)));
   // Admins: themselves, their direct reports, and anyone on work they can see.
   const employees = active.filter(
-    (m) => isSuperAdmin || m.userId === me || m.managerId === me || visibleAssignees.has(m.userId),
+    (m) => isCompanyWideReader || m.userId === me || m.managerId === me || visibleAssignees.has(m.userId),
   );
 
   const reports = mergeDailyReports(reportRows);

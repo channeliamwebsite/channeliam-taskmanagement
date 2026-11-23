@@ -25,7 +25,7 @@ import { removeMember, setCanCreateClientsProjects, setCanCreateProjects, update
 import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import type { AddEmployeeResult } from "@/lib/employee-workflow";
 
-const ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "INDIVIDUAL"];
+const ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "OPERATIONAL_MANAGER", "INDIVIDUAL"];
 
 export type ManagerOption = { userId: string; name: string };
 export type WorkspaceOption = { id: string; name: string };

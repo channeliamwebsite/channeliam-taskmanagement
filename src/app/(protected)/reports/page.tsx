@@ -93,14 +93,17 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   // Super admins monitor and compare reports; they do not submit their own.
   const canSubmit = session.permissions.submitDailyReports;
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  const isOperationalManager = session.profile.role === "OPERATIONAL_MANAGER";
   const roleFilter = (get("role") in REPORTING_ROLES ? get("role") : "") as keyof typeof REPORTING_ROLES | "";
   const userId = session.user.id;
   const supabase = await createClient();
-  // Super Admin's "Organisation updates" view: every department (non-personal)
-  // workspace's reports and members, company-wide -- same pattern as the
-  // Employees, Team Today and Dashboard pages. Admin (the other canViewTeam
-  // role) stays scoped to the active workspace, unchanged.
-  const departmentWorkspaceIds = isSuperAdmin ? departmentWorkspacesOf(await getMyWorkspaces()).map((w) => w.id) : [];
+  // Super Admin's "Organisation updates" view and Operational Manager's team
+  // view: every department (non-personal) workspace's reports and members,
+  // company-wide -- same pattern as the Employees, Team Today and Dashboard
+  // pages. Admin (the other canViewTeam role) stays scoped to the active
+  // workspace, unchanged.
+  const isCompanyWideReader = isSuperAdmin || isOperationalManager;
+  const departmentWorkspaceIds = isCompanyWideReader ? departmentWorkspacesOf(await getMyWorkspaces()).map((w) => w.id) : [];
 
   // Full history of the caller's own reports, one month at a time. RLS allows
   // reading one's own reports; the query is also pinned to the caller and the
@@ -147,14 +150,14 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           .order("report_date", { ascending: false }).limit(10)
       : Promise.resolve({ data: [] as unknown[], error: null }),
     canViewTeam
-      ? isSuperAdmin
+      ? isCompanyWideReader
         ? supabase.from("daily_reports").select(SELECT).in("workspace_id", departmentWorkspaceIds).eq("report_date", date)
         : supabase.from("daily_reports").select(SELECT).eq("workspace_id", workspace.id).eq("report_date", date)
       : Promise.resolve({ data: [] as unknown[], error: null }),
     canSubmit
       ? summarizeDay(workspace.id, userId, today, workspace.timezone)
       : Promise.resolve({ completed: [], notCompleted: [], blocked: [] }),
-    canViewTeam ? (isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id)) : Promise.resolve([]),
+    canViewTeam ? (isCompanyWideReader ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id)) : Promise.resolve([]),
     // One employee's own tasks, scoped by assignee (RLS still applies) -- not the
     // whole workspace's task list -- for the compact task summary shown when a
     // single employee is selected (dashboard employee-row click-through).
@@ -205,9 +208,9 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   const reportsBy = mergeDuplicateReports(teamRes.data as unknown as ReportRow[]);
   const teamReports = [...reportsBy.values()];
   // Deactivated / former members are listed when they have a report for the
-  // date. For the super admin that means an actual submission: rows created
-  // by the automatic morning snapshot alone do not count.
-  const rosterReportIds = isSuperAdmin ? teamReports.filter(hasSubmission).map((r) => r.user_id) : reportsBy.keys();
+  // date. For a company-wide viewer that means an actual submission: rows
+  // created by the automatic morning snapshot alone do not count.
+  const rosterReportIds = isCompanyWideReader ? teamReports.filter(hasSubmission).map((r) => r.user_id) : reportsBy.keys();
   const rosterEntries = buildReportRoster(members, rosterReportIds, {
     userId,
     role: session.profile.role,
@@ -233,8 +236,9 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
     const roleLabel = role ? ROLE_LABELS[role] : null;
     return { userId: e.userId, name, team, badge, role, roleLabel, state: e.state };
   })
-    // Super admins do not submit reports, so they are not listed for one another.
-    .filter((m) => !isSuperAdmin || m.role !== "SUPER_ADMIN");
+    // Super admins do not submit reports, so a company-wide viewer (who sees
+    // every role, not just Admins/Individuals) does not list them.
+    .filter((m) => !isCompanyWideReader || m.role !== "SUPER_ADMIN");
   const departments = [...new Set(roster.map((m) => m.team).filter((t): t is string => Boolean(t)))].sort();
   // Date, department, employee and role define who is in scope (and the
   // totals); the submission filter then only narrows the list shown.
@@ -254,8 +258,8 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
       if (status === "none") return !am && !pm;
       return true;
     });
-  // A super admin can read every task in the workspace, so an unresolvable id means a deleted task.
-  const taskLabel = (id: string) => reportTaskLabel(id, titleOf, session.profile.role === "SUPER_ADMIN");
+  // A company-wide viewer can read every task across departments, so an unresolvable id means a deleted task.
+  const taskLabel = (id: string) => reportTaskLabel(id, titleOf, isCompanyWideReader);
   const morningCount = rows.filter((r) => r.report?.morning_submitted_at).length;
   const eveningCount = rows.filter((r) => r.report?.evening_submitted_at).length;
 

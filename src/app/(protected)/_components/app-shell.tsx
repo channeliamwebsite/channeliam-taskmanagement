@@ -138,12 +138,38 @@ export async function AppShell({ children }: { children: ReactNode }) {
       ],
     },
   ];
+  // Operational Manager: company-wide task/project/client work, not the
+  // organisation-structure or HR pages (/team, /hr, /client-reports) that
+  // superAdminSections links to and that Operational Manager cannot open
+  // (ROUTE_ROLES). Its own My Day/My Tasks/Task Board stay, same as Admin.
+  const operationalManagerSections: NavSection[] = [
+    {
+      title: "My work",
+      items: [
+        { href: "/my-day", label: "My Day", icon: "myday" },
+        { href: "/tasks", label: "My Tasks", icon: "tasks" },
+        { href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" },
+        { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+        { href: "/tasks?scope=all", label: "Tasks", icon: "tasks" },
+        { href: "/projects", label: "Projects", icon: "projects" },
+        { href: "/clients", label: "Clients", icon: "clients" },
+        { href: "/reports", label: "Reports", icon: "reports" },
+        { href: "/inbox", label: "Inbox", icon: "inbox", badge: notifications.unread },
+      ],
+    },
+    {
+      title: "Account",
+      items: [{ href: "/settings", label: "Settings", icon: "settings" }],
+    },
+  ];
   const sections: NavSection[] =
     role === "INDIVIDUAL"
       ? [myWork, individualAccount]
       : role === "ADMIN"
         ? [myWork, clientsProjects, team, adminAccount]
-        : superAdminSections;
+        : role === "OPERATIONAL_MANAGER"
+          ? operationalManagerSections
+          : superAdminSections;
   const homeHref = role === "SUPER_ADMIN" ? "/dashboard" : "/my-day";
   const name = displayName({ full_name: session.profile.fullName, email: session.profile.email });
   const roleLabel = ROLE_LABELS[session.profile.role];

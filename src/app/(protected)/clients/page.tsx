@@ -21,22 +21,25 @@ export default async function ClientsPage() {
   if (!workspace) return <NoWorkspace session={session} />;
 
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
-  // Super Admin: clients and projects are company-wide, across every
-  // department (non-personal) workspace -- same getCompanyWideMembers()/
-  // departmentWorkspacesOf() pattern as the other pages. Each client/project
-  // keeps its own workspaceId (listClients/listProjects), so they are
-  // labelled by department rather than merged into one indistinguishable
-  // list. Admin and Individual are unchanged (single active workspace).
-  const allWorkspaces = isSuperAdmin ? await getMyWorkspaces() : [];
+  const isOperationalManager = session.profile.role === "OPERATIONAL_MANAGER";
+  // Super Admin and Operational Manager: clients and projects are
+  // company-wide, across every department (non-personal) workspace -- same
+  // getCompanyWideMembers()/departmentWorkspacesOf() pattern as the other
+  // pages. Each client/project keeps its own workspaceId
+  // (listClients/listProjects), so they are labelled by department rather
+  // than merged into one indistinguishable list. Admin and Individual are
+  // unchanged (single active workspace).
+  const isCompanyWideReader = isSuperAdmin || isOperationalManager;
+  const allWorkspaces = isCompanyWideReader ? await getMyWorkspaces() : [];
   const departmentWorkspaceIds = departmentWorkspacesOf(allWorkspaces).map((w) => w.id);
   const workspaceNameById = new Map(allWorkspaces.map((w) => [w.id, w.name]));
   const [clients, projects, members] = await Promise.all([
     listClients(workspace.id, {
       withContacts: session.profile.role !== "INDIVIDUAL",
-      workspaceIds: isSuperAdmin ? departmentWorkspaceIds : undefined,
+      workspaceIds: isCompanyWideReader ? departmentWorkspaceIds : undefined,
     }),
-    listProjects(workspace.id, { workspaceIds: isSuperAdmin ? departmentWorkspaceIds : undefined }),
-    isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
+    listProjects(workspace.id, { workspaceIds: isCompanyWideReader ? departmentWorkspaceIds : undefined }),
+    isCompanyWideReader ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
   ]);
   const canEdit = session.profile.role !== "INDIVIDUAL";
   // Individuals add clients only with the can_create_clients_projects grant (028).
@@ -54,7 +57,7 @@ export default async function ClientsPage() {
       return {
         id: c.id,
         name: c.name,
-        workspaceName: isSuperAdmin ? workspaceNameById.get(c.workspaceId) : undefined,
+        workspaceName: isCompanyWideReader ? workspaceNameById.get(c.workspaceId) : undefined,
         contactName: c.contactName,
         contactEmail: c.contactEmail,
         notes: c.notes,
@@ -73,7 +76,7 @@ export default async function ClientsPage() {
     <>
       <PageHeader
         title="Clients"
-        description={`${clients.length} client${clients.length === 1 ? "" : "s"}${isSuperAdmin ? " across all departments" : ` in ${workspace.name}`} · Client → Project → Task`}
+        description={`${clients.length} client${clients.length === 1 ? "" : "s"}${isCompanyWideReader ? " across all departments" : ` in ${workspace.name}`} · Client → Project → Task`}
         actions={
           canAdd ? <ClientFormButton workspaceId={workspace.id} /> : null
         }
@@ -89,7 +92,7 @@ export default async function ClientsPage() {
               canEdit={canEdit}
               showContacts={showContacts}
               showReports={session.permissions.viewTeamReports}
-              showWorkspace={isSuperAdmin}
+              showWorkspace={isCompanyWideReader}
             />
           ) : null}
 
@@ -101,7 +104,7 @@ export default async function ClientsPage() {
                     <Link href={`/projects/${p.id}`} className="grid gap-1.5 py-2.5 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4">
                       <span className="flex min-w-0 items-center gap-2 text-sm">
                         <span className="truncate font-medium hover:underline">{p.name}</span>
-                        {isSuperAdmin ? (
+                        {isCompanyWideReader ? (
                           <span className="shrink-0 text-xs text-muted-foreground">{workspaceNameById.get(p.workspaceId)}</span>
                         ) : null}
                         <ProjectStatusBadge status={p.status} />

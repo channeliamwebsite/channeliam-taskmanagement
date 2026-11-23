@@ -18,6 +18,7 @@ import {
 const m = (userId: string, o: Partial<RosterMember> = {}): RosterMember => ({ userId, isActive: true, managerId: null, team: null, ...o });
 const SA = { userId: "sa", role: "SUPER_ADMIN" as const, team: null };
 const ADMIN = { userId: "ad", role: "ADMIN" as const, team: "Creatives" };
+const OM = { userId: "om", role: "OPERATIONAL_MANAGER" as const, team: null };
 
 describe("buildReportRoster (historical reports stay visible)", () => {
   const members = [
@@ -59,6 +60,14 @@ describe("buildReportRoster (historical reports stay visible)", () => {
   it("includes inactive direct reports outside the admin's department", () => {
     const roster = buildReportRoster([...members, m("report", { isActive: false, managerId: "ad", team: "News Desk" })], ["report"], ADMIN);
     assert.equal(roster.find((e) => e.userId === "report")?.state, "inactive");
+  });
+
+  it("gives an Operational Manager the same company-wide scope as a super admin", () => {
+    assert.deepEqual(
+      buildReportRoster(members, [], OM).map((e) => e.userId),
+      ["sa", "ad", "ivy", "desk"],
+    );
+    assert.deepEqual(buildReportRoster(members, ["former"], OM).at(-1), { userId: "former", member: null, state: "removed" });
   });
 });
 

@@ -22,8 +22,9 @@ export type RosterEntry<M> = { userId: string; member: M | null; state: RosterSt
  * members and people no longer in the workspace appear only when they have a
  * report for that date, so their history is not hidden. Admins keep their
  * existing scope (self, direct reports, own department); people removed from
- * the workspace have no profile to scope by, so only super admins see them.
- * Which report rows exist at all is still decided by RLS.
+ * the workspace have no profile to scope by, so only company-wide viewers
+ * (Super Admin, Operational Manager) see them. Which report rows exist at
+ * all is still decided by RLS.
  */
 export function buildReportRoster<M extends RosterMember>(
   members: readonly M[],
@@ -31,9 +32,9 @@ export function buildReportRoster<M extends RosterMember>(
   viewer: Viewer,
 ): RosterEntry<M>[] {
   const withReport = new Set(reportUserIds);
-  const isSuperAdmin = viewer.role === "SUPER_ADMIN";
+  const isCompanyWide = viewer.role === "SUPER_ADMIN" || viewer.role === "OPERATIONAL_MANAGER";
   const inScope = (m: M) =>
-    isSuperAdmin ||
+    isCompanyWide ||
     m.userId === viewer.userId ||
     m.managerId === viewer.userId ||
     (viewer.team !== null && m.team === viewer.team);
@@ -46,7 +47,7 @@ export function buildReportRoster<M extends RosterMember>(
     if (m.isActive) entries.push({ userId: m.userId, member: m, state: "active" });
     else if (withReport.has(m.userId)) entries.push({ userId: m.userId, member: m, state: "inactive" });
   }
-  if (isSuperAdmin) {
+  if (isCompanyWide) {
     for (const id of withReport) if (!known.has(id)) entries.push({ userId: id, member: null, state: "removed" });
   }
   return entries;

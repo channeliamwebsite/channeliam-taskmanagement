@@ -126,25 +126,29 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const isAdmin = session.profile.role === "ADMIN";
   const isIndividual = session.profile.role === "INDIVIDUAL";
-  // Super Admin: tasks, projects, members and daily tracking are company-wide,
-  // across every department (non-personal) workspace -- same
+  const isOperationalManager = session.profile.role === "OPERATIONAL_MANAGER";
+  // Super Admin and Operational Manager: tasks, projects and members are
+  // company-wide, across every department (non-personal) workspace -- same
   // getCompanyWideMembers()/departmentWorkspacesOf() pattern as the
   // Employees, Team Today, Tasks, Clients and Projects pages. Admin and
   // Individual keep their own existing task-scoping helpers, unchanged.
-  const departmentWorkspaces = isSuperAdmin ? departmentWorkspacesOf(await getMyWorkspaces()) : [];
+  // Daily tracking stays Super Admin only -- it only feeds SuperAdminDashboard
+  // below, which Operational Manager does not render.
+  const isCompanyWideReader = isSuperAdmin || isOperationalManager;
+  const departmentWorkspaces = isCompanyWideReader ? departmentWorkspacesOf(await getMyWorkspaces()) : [];
   const departmentWorkspaceIds = departmentWorkspaces.map((w) => w.id);
   const workspaceNameById = new Map(departmentWorkspaces.map((w) => [w.id, w.name]));
   const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients] = await Promise.all([
-    // Super admin: company-wide, every department workspace. Admin /
-    // Individual: scoped to what their own dashboard view can show (see the
-    // two helpers above).
-    isSuperAdmin
+    // Super admin and Operational Manager: company-wide, every department
+    // workspace. Admin / Individual: scoped to what their own dashboard view
+    // can show (see the two helpers above).
+    isCompanyWideReader
       ? listTasks({ workspaceId: workspace.id, workspaceIds: departmentWorkspaceIds })
       : isAdmin
         ? adminTaskScope(workspace.id, session.user.id)
         : individualTaskScope(workspace.id, session.user.id),
-    isSuperAdmin ? listProjects(workspace.id, { workspaceIds: departmentWorkspaceIds }) : listProjects(workspace.id),
-    isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
+    isCompanyWideReader ? listProjects(workspace.id, { workspaceIds: departmentWorkspaceIds }) : listProjects(workspace.id),
+    isCompanyWideReader ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
     isAdmin ? loadTeamToday(session, workspace) : Promise.resolve(null),
     // Options for the existing New task dialog (admins only).
     isAdmin ? listProjectOptions(workspace.id) : Promise.resolve([]),

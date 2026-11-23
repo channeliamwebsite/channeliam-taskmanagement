@@ -67,11 +67,13 @@ export function getPermissions(role: UserRole) {
     createWorkspaces: isSuperAdmin,
     createTasks: !isSuperAdmin,
     assignTasks: managesWork,
-    // Team/employee administration pages stay Admin+Super Admin only; this is
-    // read/monitoring visibility, not the organisation-structure rights
-    // Operational Manager is deliberately excluded from.
+    // /team (employee administration) stays Admin+Super Admin only --
+    // organisation-structure rights Operational Manager is deliberately
+    // excluded from. viewTeamReports (Daily Updates) is company-wide
+    // monitoring, not organisation-structure, so Operational Manager gets it
+    // too -- same read scope as its task/project/client access.
     viewTeam: isAdmin || isSuperAdmin,
-    viewTeamReports: isAdmin || isSuperAdmin,
+    viewTeamReports: isAdmin || isSuperAdmin || isOperationalManager,
     // Projects: admins additionally need the per-workspace
     // `can_create_projects` flag, which the database enforces. Operational
     // Manager's project creation is unrestricted at the database layer.

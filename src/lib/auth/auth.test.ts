@@ -58,9 +58,10 @@ describe("roles and permissions", () => {
     assert.equal(getPermissions("OPERATIONAL_MANAGER").createTasks, true);
     assert.equal(getPermissions("OPERATIONAL_MANAGER").assignTasks, true);
     assert.equal(getPermissions("OPERATIONAL_MANAGER").createProjects, true);
-    // Not Admin's organisation-structure administration.
+    // Not Admin's organisation-structure administration (/team stays Admin+Super Admin only).
     assert.equal(getPermissions("OPERATIONAL_MANAGER").viewTeam, false);
-    assert.equal(getPermissions("OPERATIONAL_MANAGER").viewTeamReports, false);
+    // Daily Updates (company-wide monitoring, not organisation-structure) is granted.
+    assert.equal(getPermissions("OPERATIONAL_MANAGER").viewTeamReports, true);
   });
 
   it("lets admins and individuals submit daily reports; super admins only review them", () => {

@@ -12,7 +12,7 @@ import { listProjectOptions } from "@/lib/data/projects";
 import { TaskPager } from "@/components/tasks/task-pager";
 import { listTasks, listTasksPage, toTaskRows, type TaskSummary } from "@/lib/data/tasks";
 import { createClient } from "@/lib/supabase/server";
-import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { departmentWorkspacesOf, getCompanyWideMembers, getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, isPriority, isTaskStatus } from "@/lib/domain";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
@@ -46,10 +46,24 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const view = get("view") === "board" && session.profile.role !== "SUPER_ADMIN" ? "board" : "list";
   const userId = session.user.id;
   const today = workspaceToday(workspace);
+  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  // Super Admin: tasks and members are company-wide, across every department
+  // (non-personal) workspace -- same getCompanyWideMembers()/
+  // departmentWorkspacesOf() as the Employees, Team Today and Dashboard pages.
+  // workspaceIds (tasks.ts) runs this as a single correctly-paginated/sorted/
+  // counted query instead of merging several paginated results in JS, which
+  // would not sort or count correctly across workspaces. Admin and Individual
+  // are unchanged.
+  const allWorkspaces = isSuperAdmin ? await getMyWorkspaces() : [];
+  const departmentWorkspaceIds = departmentWorkspacesOf(allWorkspaces).map((w) => w.id);
+  const workspaceNameById = new Map(allWorkspaces.map((w) => [w.id, w.name]));
 
   const [projects, members, clientOptions] = await Promise.all([
-    listProjectOptions(workspace.id),
-    getWorkspaceMembers(workspace.id),
+    // Project/client filter options, company-wide for Super Admin too (never
+    // task creation, which Super Admin cannot do) -- so the filters work
+    // across every department, not just whichever one is active.
+    listProjectOptions(workspace.id, { workspaceIds: isSuperAdmin ? departmentWorkspaceIds : undefined }),
+    isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
     // Every client for the New task dialog (assigners only).
     session.permissions.assignTasks ? listClientOptions(workspace.id) : Promise.resolve([]),
   ]);
@@ -72,6 +86,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const page = Number(get("page") ?? "1");
   const { tasks, total, page: currentPage, pageCount } = await listTasksPage({
     workspaceId: workspace.id,
+    workspaceIds: isSuperAdmin ? departmentWorkspaceIds : undefined,
     projectId: project && UUID.test(project) ? project : undefined,
     projectIds: clientProjectIds,
     assigneeId: assignee && UUID.test(assignee) ? assignee : scope === "mine" ? userId : undefined,
@@ -102,6 +117,18 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   ]
     .map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name));
+  // Department-labelled project options for the filter dropdown only (never
+  // task creation, which Super Admin cannot do), so same-named projects in
+  // different departments are never shown as indistinguishable.
+  const filterProjects = isSuperAdmin
+    ? projects.map((p) => ({ ...p, name: `${p.name} — ${workspaceNameById.get(p.workspaceId) ?? "—"}` }))
+    : projects;
+  const filterClients = isSuperAdmin
+    ? clients.map((c) => {
+        const p = projects.find((pr) => pr.clientId === c.id);
+        return { ...c, name: p ? `${c.name} — ${workspaceNameById.get(p.workspaceId) ?? "—"}` : c.name };
+      })
+    : clients;
   const title = view === "board" ? "Task Board" : scope === "mine" ? "My Tasks" : "Tasks";
   const external = scope === "mine" && view !== "board" ? toTaskRows(await collaborationTasks(userId, workspace.id), session) : [];
 
@@ -109,7 +136,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     <>
       <PageHeader
         title={title}
-        description={`${total} task${total === 1 ? "" : "s"} in ${workspace.name}`}
+        description={`${total} task${total === 1 ? "" : "s"}${isSuperAdmin ? " across all departments" : ` in ${workspace.name}`}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {session.permissions.createTasks ? (
@@ -124,7 +151,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
           </div>
         }
       />
-      <TaskFilters projects={projects} members={memberOptions} clients={clients} openByDefault showBoard={session.profile.role !== "SUPER_ADMIN"} />
+      <TaskFilters projects={filterProjects} members={memberOptions} clients={filterClients} openByDefault showBoard={session.profile.role !== "SUPER_ADMIN"} />
       {rows.length === 0 ? (
         <EmptyState
           icon={CheckSquare}

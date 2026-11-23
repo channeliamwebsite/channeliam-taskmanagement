@@ -38,21 +38,21 @@ export async function loadTeamToday(session: Session, workspace: Workspace) {
   const completedAfter = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
   const workspaceIds = isSuperAdmin ? departmentWorkspacesOf(await getMyWorkspaces()).map((w) => w.id) : [workspace.id];
 
+  // Single query per source (not one per department workspace): tasks.ts and
+  // the daily_reports table both support `workspace_id in (...)` directly, so
+  // Super Admin's company-wide fetch is the same number of Supabase round
+  // trips as Admin's single-workspace one, not N of them.
   const [openTasks, recentlyCompleted, members, reportRows] = await Promise.all([
-    Promise.all(workspaceIds.map((id) => listTasks({ workspaceId: id, openOnly: true }))).then((lists) => lists.flat()),
-    Promise.all(workspaceIds.map((id) => listTasks({ workspaceId: id, status: "COMPLETED", completedAfter }))).then((lists) => lists.flat()),
+    listTasks({ workspaceId: workspace.id, workspaceIds: isSuperAdmin ? workspaceIds : undefined, openOnly: true }),
+    listTasks({ workspaceId: workspace.id, workspaceIds: isSuperAdmin ? workspaceIds : undefined, status: "COMPLETED", completedAfter }),
     isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
-    Promise.all(
-      workspaceIds.map(async (id) => {
-        const { data, error } = await supabase
-          .from("daily_reports")
-          .select("user_id, morning_submitted_at, evening_submitted_at")
-          .eq("workspace_id", id)
-          .eq("report_date", today);
-        if (error) throw loadError("Failed to load daily reports", error);
-        return data ?? [];
-      }),
-    ).then((lists) => lists.flat()),
+    (async () => {
+      let query = supabase.from("daily_reports").select("user_id, morning_submitted_at, evening_submitted_at").eq("report_date", today);
+      query = isSuperAdmin ? query.in("workspace_id", workspaceIds) : query.eq("workspace_id", workspace.id);
+      const { data, error } = await query;
+      if (error) throw loadError("Failed to load daily reports", error);
+      return data ?? [];
+    })(),
   ]);
   // Tasks are workspace-owned, so a task id can repeat here only if the same
   // task satisfied both queries; task ids are globally unique, never shared

@@ -22,6 +22,30 @@ export function hasSubmission(report: { morning_submitted_at: string | null; eve
   return Boolean(report?.morning_submitted_at || report?.evening_submitted_at);
 }
 
+/**
+ * One daily_reports row per user_id, for a company-wide (Super Admin) view
+ * built from more than one department workspace's reports on the same date.
+ * daily_reports is unique on (user_id, workspace_id, report_date), so an
+ * employee who is a member of more than one department workspace can in
+ * principle have a genuine row in each -- this is schema-valid, not
+ * duplicate data, so rows are never dropped outright. Per user_id, the most
+ * complete submission wins (both > evening only > morning only > neither);
+ * a tie keeps the first row seen (the order callers pass workspaces in), so
+ * a report is never attributed to the wrong employee and never silently
+ * downgraded to a less complete one.
+ */
+export function mergeDuplicateReports<R extends { user_id: string; morning_submitted_at: string | null; evening_submitted_at: string | null }>(
+  rows: readonly R[],
+): Map<string, R> {
+  const completeness = (r: R) => (r.evening_submitted_at ? 2 : 0) + (r.morning_submitted_at ? 1 : 0);
+  const byUser = new Map<string, R>();
+  for (const r of rows) {
+    const prev = byUser.get(r.user_id);
+    if (!prev || completeness(r) > completeness(prev)) byUser.set(r.user_id, r);
+  }
+  return byUser;
+}
+
 export type Submission = "both" | "morning_only" | "evening_only" | "none";
 /** Outcome of the day, known only once the evening report exists. */
 export type Outcome = "completed" | "partial" | "pending" | "blocked" | "no_tasks" | "unknown";

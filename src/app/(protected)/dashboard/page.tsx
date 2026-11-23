@@ -44,7 +44,16 @@ import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
 import { listTasks, type TaskSummary } from "@/lib/data/tasks";
 import { uniqueById } from "@/lib/task-query";
-import { canCreateProjects, getWorkspaceMembers, type Member, type Workspace, workspaceToday } from "@/lib/data/workspace";
+import {
+  canCreateProjects,
+  departmentWorkspacesOf,
+  getCompanyWideMembers,
+  getMyWorkspaces,
+  getWorkspaceMembers,
+  type Member,
+  type Workspace,
+  workspaceToday,
+} from "@/lib/data/workspace";
 import { BUSINESS_TIMEZONE, PRIORITY_RANK, addDaysISO, displayName, formatDate, formatDateTime, isOverdue, todayISO } from "@/lib/domain";
 import { buildRangeReport } from "@/lib/data/hr-month";
 import { listLeaveForReview } from "@/lib/data/hr";
@@ -117,23 +126,43 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
   const isAdmin = session.profile.role === "ADMIN";
   const isIndividual = session.profile.role === "INDIVIDUAL";
+  // Super Admin: tasks, projects, members and daily tracking are company-wide,
+  // across every department (non-personal) workspace -- same
+  // getCompanyWideMembers()/departmentWorkspacesOf() pattern as the
+  // Employees, Team Today, Tasks, Clients and Projects pages. Admin and
+  // Individual keep their own existing task-scoping helpers, unchanged.
+  const departmentWorkspaces = isSuperAdmin ? departmentWorkspacesOf(await getMyWorkspaces()) : [];
+  const departmentWorkspaceIds = departmentWorkspaces.map((w) => w.id);
+  const workspaceNameById = new Map(departmentWorkspaces.map((w) => [w.id, w.name]));
   const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients] = await Promise.all([
-    // Super admin: company-wide (unchanged) — the dashboard's company-wide
-    // figures need every task. Admin / Individual: scoped to what their own
-    // dashboard view can show (see the two helpers above).
+    // Super admin: company-wide, every department workspace. Admin /
+    // Individual: scoped to what their own dashboard view can show (see the
+    // two helpers above).
     isSuperAdmin
-      ? listTasks({ workspaceId: workspace.id })
+      ? listTasks({ workspaceId: workspace.id, workspaceIds: departmentWorkspaceIds })
       : isAdmin
         ? adminTaskScope(workspace.id, session.user.id)
         : individualTaskScope(workspace.id, session.user.id),
-    listProjects(workspace.id),
-    getWorkspaceMembers(workspace.id),
+    isSuperAdmin ? listProjects(workspace.id, { workspaceIds: departmentWorkspaceIds }) : listProjects(workspace.id),
+    isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
     isAdmin ? loadTeamToday(session, workspace) : Promise.resolve(null),
     // Options for the existing New task dialog (admins only).
     isAdmin ? listProjectOptions(workspace.id) : Promise.resolve([]),
     isIndividual ? myReportToday(workspace.id, session.user.id, workspaceToday(workspace)) : Promise.resolve(null),
     // Automatic morning report vs. live tasks (migration 011), super admins only.
-    isSuperAdmin ? loadDailyTracking(workspace.id, workspaceToday(workspace)) : Promise.resolve({ rows: [], reports: [] }),
+    isSuperAdmin
+      ? Promise.all(departmentWorkspaces.map((w) => loadDailyTracking(w.id, workspaceToday(workspace)))).then((results) => {
+          const rows = results.flatMap((r) => r.rows);
+          // One daily_reports row per (user, workspace, date); an employee who
+          // belongs to more than one department workspace keeps the first
+          // workspace's report, consistent with getCompanyWideMembers()'s own
+          // "first workspace wins" rule, so a report is never attributed to a
+          // department other than the one that employee is actually shown under.
+          const seen = new Set<string>();
+          const reports = results.flatMap((r) => r.reports).filter((r) => (seen.has(r.userId) ? false : (seen.add(r.userId), true)));
+          return { rows, reports };
+        })
+      : Promise.resolve({ rows: [], reports: [] }),
     // Add project on the admin dashboard: same rule as the Projects page; createProject and RLS enforce it again.
     isAdmin ? canCreateProjects(workspace.id, session.user.id, session.profile.role) : Promise.resolve(false),
     // RLS-scoped to the active workspace, so the picker lists only clients the admin can attach a project to.
@@ -167,6 +196,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
         name={name}
         tracking={tracking}
         pendingLeave={pendingLeave}
+        workspaceNameById={workspaceNameById}
       />
     );
   }
@@ -237,6 +267,7 @@ type SuperAdminProps = Props & {
   name: string;
   tracking: Awaited<ReturnType<typeof loadDailyTracking>>;
   pendingLeave: Awaited<ReturnType<typeof listLeaveForReview>>;
+  workspaceNameById: Map<string, string>;
 };
 
 
@@ -246,12 +277,28 @@ type SuperAdminProps = Props & {
  * lib/super-admin-overview and the existing report / attendance / leave data.
  * No task-creation actions and no meetings here (meetings: Team Today).
  */
-function SuperAdminDashboard({ workspace, tasks, projects, members, today, name, tracking, range, attendance, attendanceStatusByUser, pendingLeave }: SuperAdminProps) {
+function SuperAdminDashboard({
+  workspace,
+  tasks,
+  projects,
+  members,
+  today,
+  name,
+  tracking,
+  range,
+  attendance,
+  attendanceStatusByUser,
+  pendingLeave,
+  workspaceNameById,
+}: SuperAdminProps) {
   // Admins and Individuals who are active (super admins review; they do not report).
   const employees = members
     .filter((m) => m.role !== "SUPER_ADMIN" && m.isActive)
     .map((m) => ({ userId: m.userId, name: displayName({ full_name: m.fullName, email: m.email }), team: m.team?.trim() || null }))
     .sort((a, b) => a.name.localeCompare(b.name));
+  // Project -> owning department's name, for the Client & project progress
+  // table below (projectProgress's ProjectInput carries no workspace label).
+  const projectWorkspaceName = new Map(projects.map((p) => [p.id, workspaceNameById.get(p.workspaceId)]));
   const summaries = new Map(summarizeTracking(employees.map((e) => e.userId), tracking.rows, tracking.reports).map((s) => [s.userId, s]));
   const reportsBy = new Map(tracking.reports.map((r) => [r.userId, r]));
   const morningDone = employees.filter((e) => reportsBy.get(e.userId)?.morningSubmittedAt).length;
@@ -289,7 +336,7 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Total employees" value={people.admins + people.individuals} icon={Users} tone="brand" hint={`${people.admins} Admin · ${people.individuals} Individual`} href="/team?active=active" />
         <StatCard label="Present today" value={attendance.present} icon={UserCheck} tone="success" hint="Checked in today" href="/hr" />
-        <StatCard label="Total tasks" value={counts.total} icon={ListTodo} tone="info" hint={workspace.name} href="/tasks?scope=all" />
+        <StatCard label="Total tasks" value={counts.total} icon={ListTodo} tone="info" hint="All departments" href="/tasks?scope=all" />
         <StatCard label="Completed" value={counts.completed} icon={CheckCircle2} tone="success" hint={`${completionPercent}% completion`} href="/tasks?scope=all&status=COMPLETED" />
         <StatCard label="Pending" value={counts.pending} icon={CircleDashed} tone="warning" hint="Not started" href="/tasks?scope=all&status=TODO" />
         <StatCard label="In progress" value={counts.inProgress} icon={CircleDot} tone="violet" hint="Being worked on" href="/tasks?scope=all&status=IN_PROGRESS" />
@@ -320,7 +367,7 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
 
       {/* 2 · 3 · 7 */}
       <div className="mb-6 grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-        <Section title="Department progress" icon={BarChart3} description={`${workspace.name} · ${rangeLabel}`}>
+        <Section title="Department progress" icon={BarChart3} description={`All departments · ${rangeLabel}`}>
           {departments.length ? (
             <ul className="grid gap-3.5">
               {departments.map((d, i) => (
@@ -451,7 +498,7 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
         <Section
           title="Employee performance"
           icon={Users}
-          description={`${workspace.name} · ${rangeLabel}`}
+          description={`All departments · ${rangeLabel}`}
           action={
             <Link href="/team" className={sectionLinkClass}>
               View all →
@@ -518,7 +565,7 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
         <Section
           title="Client & project progress"
           icon={FolderKanban}
-          description={`${projectRows.length} project${projectRows.length === 1 ? "" : "s"} · ${rangeLabel}`}
+          description={`${projectRows.length} project${projectRows.length === 1 ? "" : "s"} · all departments · ${rangeLabel}`}
           action={
             <Link href="/projects" className={sectionLinkClass}>
               View all →
@@ -532,6 +579,7 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
                   <tr className="border-b border-border/70">
                     <th className="px-4 py-2 font-medium sm:px-5">Client</th>
                     <th className="px-3 py-2 font-medium">Project</th>
+                    <th className="px-3 py-2 font-medium">Department</th>
                     <th className="px-3 py-2 font-medium">Progress</th>
                     <th className="px-4 py-2 font-medium sm:px-5">Status</th>
                   </tr>
@@ -547,6 +595,7 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
                             {r.project.name}
                           </Link>
                         </td>
+                        <td className="px-3 py-2.5 text-muted-foreground">{projectWorkspaceName.get(r.project.id) ?? "—"}</td>
                         <td className="px-3 py-2.5">
                           <span className="flex items-center gap-2">
                             <ProgressBar value={pct} className="w-20" />
@@ -565,7 +614,7 @@ function SuperAdminDashboard({ workspace, tasks, projects, members, today, name,
               </table>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No projects in this workspace yet.</p>
+            <p className="text-sm text-muted-foreground">No projects yet.</p>
           )}
         </Section>
 

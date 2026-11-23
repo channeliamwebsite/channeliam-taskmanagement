@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { compareReport, hasSubmission, isExpectedReporter, summarizeComparisons, type ReportInput } from "./report-compare.ts";
+import { compareReport, hasSubmission, isExpectedReporter, mergeDuplicateReports, summarizeComparisons, type ReportInput } from "./report-compare.ts";
 import type { EveningSnapshot } from "./report-history.ts";
 
 const titleOf = (id: string) => `Title of ${id}`;
@@ -121,5 +121,42 @@ describe("who is expected to report (super admin monitoring)", () => {
       { expected: 2, morning: 1 },
       "the page computes totals over all in-scope rows, then filters the list",
     );
+  });
+});
+
+function row(user_id: string, morning: string | null, evening: string | null) {
+  return { user_id, morning_submitted_at: morning, evening_submitted_at: evening };
+}
+
+describe("mergeDuplicateReports (company-wide Daily Updates: an employee's report from more than one department workspace)", () => {
+  it("passes a single row per employee straight through", () => {
+    const merged = mergeDuplicateReports([row("u1", "2026-10-27T03:00:00Z", null)]);
+    assert.equal(merged.size, 1);
+    assert.equal(merged.get("u1")!.morning_submitted_at, "2026-10-27T03:00:00Z");
+  });
+
+  it("prefers the row with both submitted over one with only evening", () => {
+    const merged = mergeDuplicateReports([
+      row("u1", null, "2026-10-27T12:00:00Z"),
+      row("u1", "2026-10-27T03:00:00Z", "2026-10-27T12:00:00Z"),
+    ]);
+    assert.deepEqual(merged.get("u1"), row("u1", "2026-10-27T03:00:00Z", "2026-10-27T12:00:00Z"));
+  });
+
+  it("prefers evening-only over morning-only", () => {
+    const merged = mergeDuplicateReports([row("u1", "2026-10-27T03:00:00Z", null), row("u1", null, "2026-10-27T12:00:00Z")]);
+    assert.deepEqual(merged.get("u1"), row("u1", null, "2026-10-27T12:00:00Z"));
+  });
+
+  it("never attributes one employee's row to another", () => {
+    const merged = mergeDuplicateReports([row("u1", "2026-10-27T03:00:00Z", null), row("u2", null, "2026-10-27T12:00:00Z")]);
+    assert.equal(merged.get("u1")!.morning_submitted_at, "2026-10-27T03:00:00Z");
+    assert.equal(merged.get("u2")!.evening_submitted_at, "2026-10-27T12:00:00Z");
+  });
+
+  it("on a tie, keeps the first row seen", () => {
+    const first = row("u1", null, null);
+    const merged = mergeDuplicateReports([first, row("u1", null, null)]);
+    assert.equal(merged.get("u1"), first);
   });
 });

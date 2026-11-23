@@ -143,6 +143,14 @@ async function subtaskCounts(parentIds: string[]) {
 
 export type TaskFilters = {
   workspaceId: string;
+  /**
+   * Company-wide callers only (Super Admin): every department workspace to
+   * search at once, as a single correctly-sorted/paginated/counted query
+   * (`workspace_id in (...)`) instead of `workspaceId`. Takes priority over
+   * `workspaceId` when present; still required on the type so every existing
+   * single-workspace caller is unaffected.
+   */
+  workspaceIds?: string[];
   projectId?: string;
   projectIds?: string[];
   assigneeId?: string;
@@ -175,7 +183,8 @@ function filteredTasks(supabase: Supabase, filters: TaskFilters, options?: { cou
   // (still subject to its RLS), instead of shipping task-id lists in the URL.
   const assignee = assigneeFilters(filters);
   const select = [TASK_SUMMARY_SELECT, ...assignee.embeds].join(",");
-  let query = supabase.from("tasks").select(select, options).eq("workspace_id", filters.workspaceId);
+  let query = supabase.from("tasks").select(select, options);
+  query = filters.workspaceIds ? query.in("workspace_id", filters.workspaceIds) : query.eq("workspace_id", filters.workspaceId);
   for (const c of assignee.conditions) {
     query = c.op === "eq" ? query.eq(c.column, c.value as string) : query.in(c.column, c.value as string[]);
   }

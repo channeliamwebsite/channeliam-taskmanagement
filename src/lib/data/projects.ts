@@ -8,6 +8,8 @@ import { loadError } from "./errors";
 
 export type ProjectSummary = {
   id: string;
+  /** The project's own workspace -- never changes when it's listed company-wide. */
+  workspaceId: string;
   name: string;
   description: string | null;
   clientName: string | null;
@@ -25,10 +27,11 @@ export type ProjectSummary = {
 };
 
 const PROJECT_SELECT =
-  "id, name, description, client_name, client_id, status, priority, start_date, due_date, owner_id, created_by, owner:profiles!projects_owner_id_fkey(full_name, email), client:clients!projects_client_id_fkey(name)";
+  "id, workspace_id, name, description, client_name, client_id, status, priority, start_date, due_date, owner_id, created_by, owner:profiles!projects_owner_id_fkey(full_name, email), client:clients!projects_client_id_fkey(name)";
 
 type ProjectRow = {
   id: string;
+  workspace_id: string;
   name: string;
   description: string | null;
   client_name: string | null;
@@ -68,6 +71,7 @@ function toSummary(row: ProjectRow, counts: Map<string, { total: number; complet
   const c = counts.get(row.id) ?? { total: 0, completed: 0 };
   return {
     id: row.id,
+    workspaceId: row.workspace_id,
     name: row.name,
     description: row.description,
     clientName: row.client?.name ?? row.client_name,
@@ -85,13 +89,18 @@ function toSummary(row: ProjectRow, counts: Map<string, { total: number; complet
   };
 }
 
-export async function listProjects(workspaceId: string): Promise<ProjectSummary[]> {
+/**
+ * @param opts.workspaceIds Company-wide callers only (Super Admin): every
+ * department workspace to list at once, instead of `workspaceId`. Each
+ * returned project still carries its own `workspaceId`, so callers can label
+ * or group by department rather than merging them into one indistinguishable
+ * list.
+ */
+export async function listProjects(workspaceId: string, opts: { workspaceIds?: string[] } = {}): Promise<ProjectSummary[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select(PROJECT_SELECT)
-    .eq("workspace_id", workspaceId)
-    .order("updated_at", { ascending: false });
+  let query = supabase.from("projects").select(PROJECT_SELECT);
+  query = opts.workspaceIds ? query.in("workspace_id", opts.workspaceIds) : query.eq("workspace_id", workspaceId);
+  const { data, error } = await query.order("updated_at", { ascending: false });
   if (error) throw loadError("Failed to load projects", error);
   const rows = data as unknown as ProjectRow[];
   const counts = await taskCounts(rows.map((p) => p.id));
@@ -112,19 +121,22 @@ export async function getProject(projectId: string): Promise<(ProjectSummary & {
   return { ...toSummary(row, counts), workspaceId: row.workspace_id, isDefault: row.is_default };
 }
 
-/** Lightweight list for pickers (with client, for Client → Project selection). */
-export async function listProjectOptions(workspaceId: string) {
+/**
+ * Lightweight list for pickers (with client, for Client → Project selection).
+ * @param opts.workspaceIds Company-wide callers only (Super Admin's /tasks
+ * filters -- never task creation, which Super Admin cannot do): every
+ * department workspace to list at once, instead of `workspaceId`. Each
+ * option still carries its own workspaceId, for a department label.
+ */
+export async function listProjectOptions(workspaceId: string, opts: { workspaceIds?: string[] } = {}) {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("id, name, status, is_default, client_id, client_name, client:clients!projects_client_id_fkey(name)")
-    .eq("workspace_id", workspaceId)
-    .neq("status", "ARCHIVED")
-    .order("is_default", { ascending: false })
-    .order("name");
+  let query = supabase.from("projects").select("id, workspace_id, name, status, is_default, client_id, client_name, client:clients!projects_client_id_fkey(name)");
+  query = opts.workspaceIds ? query.in("workspace_id", opts.workspaceIds) : query.eq("workspace_id", workspaceId);
+  const { data, error } = await query.neq("status", "ARCHIVED").order("is_default", { ascending: false }).order("name");
   if (error) throw loadError("Failed to load projects", error);
   return data.map((p) => ({
     id: p.id,
+    workspaceId: p.workspace_id,
     name: p.name,
     status: p.status,
     isDefault: p.is_default,

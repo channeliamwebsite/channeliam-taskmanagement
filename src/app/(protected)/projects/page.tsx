@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ProjectFormButton } from "@/components/projects/project-form-dialog";
 import { listClients } from "@/lib/data/clients";
 import { listProjects } from "@/lib/data/projects";
-import { canCreateProjects, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { canCreateProjects, departmentWorkspacesOf, getCompanyWideMembers, getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABELS, addDaysISO, displayName, formatDate } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
@@ -40,11 +40,20 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
   const sort = get("sort");
   const q = get("q").trim().toLowerCase();
 
+  const isSuperAdmin = session.profile.role === "SUPER_ADMIN";
+  // Super Admin: projects/clients/members are company-wide, across every
+  // department (non-personal) workspace -- same pattern as the other pages.
+  // Each project keeps its own workspaceId (listProjects), so they are
+  // labelled by department rather than merged into one indistinguishable
+  // list. Admin and Individual are unchanged (single active workspace).
+  const allWorkspaces = isSuperAdmin ? await getMyWorkspaces() : [];
+  const departmentWorkspaceIds = departmentWorkspacesOf(allWorkspaces).map((w) => w.id);
+  const workspaceNameById = new Map(allWorkspaces.map((w) => [w.id, w.name]));
   const [projects, members, canCreate, clients] = await Promise.all([
-    listProjects(workspace.id),
-    getWorkspaceMembers(workspace.id),
+    listProjects(workspace.id, { workspaceIds: isSuperAdmin ? departmentWorkspaceIds : undefined }),
+    isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
     canCreateProjects(workspace.id, session.user.id, session.profile.role),
-    listClients(workspace.id),
+    listClients(workspace.id, { workspaceIds: isSuperAdmin ? departmentWorkspaceIds : undefined }),
   ]);
   const owners = members
     .filter((m) => m.isActive)
@@ -74,7 +83,10 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
         ? (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999")
         : sort === "name"
           ? a.name.localeCompare(b.name)
-          : 0,
+          // Default order: grouped by department first (a no-op for Admin,
+          // who only ever has one workspace), so a company-wide list never
+          // reads as one undifferentiated blend of departments.
+          : (workspaceNameById.get(a.workspaceId) ?? "").localeCompare(workspaceNameById.get(b.workspaceId) ?? ""),
     );
 
   return (
@@ -100,7 +112,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
               <option value="">All clients</option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {isSuperAdmin ? `${c.name} — ${workspaceNameById.get(c.workspaceId) ?? "—"}` : c.name}
                 </option>
               ))}
               <option value="none">Internal / no client</option>
@@ -161,6 +173,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
               <thead className="bg-surface/70 text-left text-xs tracking-wide text-muted-foreground uppercase">
                 <tr className="border-b border-border/70">
                   <th className="px-5 py-2.5 font-medium">Project</th>
+                  {isSuperAdmin ? <th className="px-3 py-2.5 font-medium">Department</th> : null}
                   <th className="px-3 py-2.5 font-medium">Client</th>
                   <th className="px-3 py-2.5 font-medium">Status</th>
                   <th className="px-3 py-2.5 font-medium">Progress</th>
@@ -185,6 +198,9 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
                           <PriorityBadge priority={p.priority} />
                         </span>
                       </td>
+                      {isSuperAdmin ? (
+                        <td className="px-3 py-3 text-muted-foreground">{workspaceNameById.get(p.workspaceId) ?? "—"}</td>
+                      ) : null}
                       <td className="px-3 py-3 text-muted-foreground">{p.clientName || "Internal"}</td>
                       <td className="px-3 py-3">
                         <ProjectStatusBadge status={p.status} />
@@ -223,6 +239,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
                       <span className="min-w-0">
                         <span className="block truncate font-medium">{p.name}</span>
                         <span className="block truncate text-xs text-muted-foreground">
+                          {isSuperAdmin ? `${workspaceNameById.get(p.workspaceId) ?? "—"} · ` : ""}
                           {p.clientName || "Internal"}
                           {p.ownerName ? ` · ${p.ownerName}` : ""}
                         </span>

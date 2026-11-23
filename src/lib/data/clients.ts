@@ -49,13 +49,28 @@ export async function getClient(
   };
 }
 
-export async function listClients(workspaceId: string, opts: { withContacts?: boolean } = {}): Promise<Client[]> {
+/**
+ * @param opts.workspaceIds Company-wide callers only (Super Admin): every
+ * department workspace to list at once, instead of `workspaceId`. Each
+ * returned client still carries its own `workspaceId`, so callers can label
+ * or group by department rather than merging them into one indistinguishable
+ * list. get_client_contacts is workspace-scoped (one call per workspace); the
+ * results are merged, so contactsFor still runs once per department workspace.
+ */
+export async function listClients(
+  workspaceId: string,
+  opts: { withContacts?: boolean; workspaceIds?: string[] } = {},
+): Promise<(Client & { workspaceId: string })[]> {
   const supabase = await createClient();
-  const [{ data, error }, contacts] = await Promise.all([
-    supabase.from("clients").select("id, name, notes, is_active").eq("workspace_id", workspaceId).order("name"),
-    opts.withContacts ? contactsFor(workspaceId) : Promise.resolve(new Map<string, { contactName: string | null; contactEmail: string | null }>()),
+  const ids = opts.workspaceIds ?? [workspaceId];
+  let query = supabase.from("clients").select("id, name, notes, is_active, workspace_id");
+  query = opts.workspaceIds ? query.in("workspace_id", opts.workspaceIds) : query.eq("workspace_id", workspaceId);
+  const [{ data, error }, contactMaps] = await Promise.all([
+    query.order("name"),
+    opts.withContacts ? Promise.all(ids.map((id) => contactsFor(id))) : Promise.resolve([]),
   ]);
   if (error) throw loadError("Failed to load clients", error);
+  const contacts = new Map(contactMaps.flatMap((m) => [...m]));
   return data.map((c) => ({
     id: c.id,
     name: c.name,
@@ -63,6 +78,7 @@ export async function listClients(workspaceId: string, opts: { withContacts?: bo
     contactEmail: contacts.get(c.id)?.contactEmail ?? null,
     notes: c.notes,
     isActive: c.is_active,
+    workspaceId: c.workspace_id,
   }));
 }
 

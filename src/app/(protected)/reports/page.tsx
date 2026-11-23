@@ -12,9 +12,9 @@ import { ReportComparison, type ComparisonRow } from "@/components/reports/repor
 import { ROLE_LABELS, type UserRole } from "@/lib/auth/roles";
 import { summarizeDay } from "@/lib/data/daily-summary";
 import { getTaskTitles, isCarriedForward, listTasks } from "@/lib/data/tasks";
-import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
+import { departmentWorkspacesOf, getCompanyWideMembers, getMyWorkspaces, getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { displayName, formatDate, formatDateTime, isTaskStatus, PRIORITY_RANK, TASK_STATUS_LABELS } from "@/lib/domain";
-import { compareReport, hasSubmission, isExpectedReporter, summarizeComparisons } from "@/lib/report-compare";
+import { compareReport, hasSubmission, isExpectedReporter, mergeDuplicateReports, summarizeComparisons } from "@/lib/report-compare";
 import { statusCounts } from "@/lib/super-admin-overview";
 import {
   buildHistoryEntry,
@@ -96,6 +96,11 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   const roleFilter = (get("role") in REPORTING_ROLES ? get("role") : "") as keyof typeof REPORTING_ROLES | "";
   const userId = session.user.id;
   const supabase = await createClient();
+  // Super Admin's "Organisation updates" view: every department (non-personal)
+  // workspace's reports and members, company-wide -- same pattern as the
+  // Employees, Team Today and Dashboard pages. Admin (the other canViewTeam
+  // role) stays scoped to the active workspace, unchanged.
+  const departmentWorkspaceIds = isSuperAdmin ? departmentWorkspacesOf(await getMyWorkspaces()).map((w) => w.id) : [];
 
   // Full history of the caller's own reports, one month at a time. RLS allows
   // reading one's own reports; the query is also pinned to the caller and the
@@ -142,12 +147,14 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           .order("report_date", { ascending: false }).limit(10)
       : Promise.resolve({ data: [] as unknown[], error: null }),
     canViewTeam
-      ? supabase.from("daily_reports").select(SELECT).eq("workspace_id", workspace.id).eq("report_date", date)
+      ? isSuperAdmin
+        ? supabase.from("daily_reports").select(SELECT).in("workspace_id", departmentWorkspaceIds).eq("report_date", date)
+        : supabase.from("daily_reports").select(SELECT).eq("workspace_id", workspace.id).eq("report_date", date)
       : Promise.resolve({ data: [] as unknown[], error: null }),
     canSubmit
       ? summarizeDay(workspace.id, userId, today, workspace.timezone)
       : Promise.resolve({ completed: [], notCompleted: [], blocked: [] }),
-    canViewTeam ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),
+    canViewTeam ? (isSuperAdmin ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id)) : Promise.resolve([]),
     // One employee's own tasks, scoped by assignee (RLS still applies) -- not the
     // whole workspace's task list -- for the compact task summary shown when a
     // single employee is selected (dashboard employee-row click-through).
@@ -190,8 +197,13 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   // Team roster: super admins see everyone; admins see themselves, their direct
   // reports and their own department (RLS lets admins read workspace reports).
   // Deactivated or removed employees stay listed for dates they reported on.
-  const teamReports = teamRes.data as unknown as ReportRow[];
-  const reportsBy = new Map(teamReports.map((r) => [r.user_id, r]));
+  // mergeDuplicateReports: for Super Admin, an employee who belongs to more
+  // than one department workspace can have a genuine daily_reports row in
+  // each (unique per user_id + workspace_id + date, not duplicate data); the
+  // most complete submission wins rather than an arbitrary one. A no-op for
+  // Admin, who can have at most one row per user_id (single workspace).
+  const reportsBy = mergeDuplicateReports(teamRes.data as unknown as ReportRow[]);
+  const teamReports = [...reportsBy.values()];
   // Deactivated / former members are listed when they have a report for the
   // date. For the super admin that means an actual submission: rows created
   // by the automatic morning snapshot alone do not count.

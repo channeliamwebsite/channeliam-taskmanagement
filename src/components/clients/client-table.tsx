@@ -14,6 +14,8 @@ import { NativeSelect } from "@/components/ui/native-select";
 export type ClientRow = {
   id: string;
   name: string;
+  /** Owning department workspace's name (Super Admin's company-wide view only). */
+  workspaceName?: string;
   contactName: string | null;
   contactEmail: string | null;
   notes: string | null;
@@ -33,12 +35,15 @@ export function ClientTable({
   canEdit,
   showContacts,
   showReports,
+  showWorkspace = false,
 }: {
   rows: ClientRow[];
   workspaceId: string;
   canEdit: boolean;
   showContacts: boolean;
   showReports: boolean;
+  /** Super Admin's company-wide view: show which department workspace owns each client. */
+  showWorkspace?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -85,6 +90,7 @@ export function ClientTable({
               <thead className="bg-surface/70 text-left text-xs tracking-wide text-muted-foreground uppercase">
                 <tr className="border-b border-border/70">
                   <th className="px-5 py-2.5 font-medium">Client</th>
+                  {showWorkspace ? <th className="px-3 py-2.5 font-medium">Department</th> : null}
                   {showContacts ? <th className="px-3 py-2.5 font-medium">Contact</th> : null}
                   <th className="px-3 py-2.5 text-right font-medium">Projects</th>
                   <th className="px-3 py-2.5 font-medium">Progress</th>
@@ -114,6 +120,7 @@ export function ClientTable({
                         </span>
                       </span>
                     </td>
+                    {showWorkspace ? <td className="px-3 py-3 text-muted-foreground">{r.workspaceName ?? "—"}</td> : null}
                     {showContacts ? (
                       <td className="px-3 py-3">
                         <span className="block truncate">{r.contactName ?? "—"}</span>
@@ -165,6 +172,7 @@ export function ClientTable({
                 <div className="flex items-start justify-between gap-2">
                   <Link href={`/clients/${r.id}`} className="min-w-0">
                     <span className="block truncate font-medium">{r.name}</span>
+                    {showWorkspace && r.workspaceName ? <span className="block truncate text-xs text-muted-foreground">{r.workspaceName}</span> : null}
                     {showContacts && (r.contactName || r.contactEmail) ? (
                       <span className="block truncate text-xs text-muted-foreground">{[r.contactName, r.contactEmail].filter(Boolean).join(" · ")}</span>
                     ) : null}

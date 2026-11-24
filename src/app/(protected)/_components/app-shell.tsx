@@ -143,12 +143,17 @@ export async function AppShell({ children }: { children: ReactNode }) {
   // superAdminSections links to and that Operational Manager cannot open
   // (ROUTE_ROLES). Its own My Day/My Tasks/Task Board stay, same as Admin.
   // Team Today is company-wide here (ROUTE_ROLES, loadTeamToday), unlike
-  // Admin's single-workspace view.
+  // Admin's single-workspace view. My Attendance and Leave Applications are
+  // the same self-service pages Admin links to -- neither route is in
+  // ROUTE_ROLES (open to every active user already), so this is only a
+  // missing link, not a new permission.
   const operationalManagerSections: NavSection[] = [
     {
       title: "My work",
       items: [
         { href: "/my-day", label: "My Day", icon: "myday" },
+        { href: "/attendance", label: "My Attendance", icon: "attendance" },
+        { href: "/attendance/leave", label: "Leave Applications", icon: "leave" },
         { href: "/tasks", label: "My Tasks", icon: "tasks" },
         { href: "/tasks?view=board&scope=all", label: "Task Board", icon: "board" },
         { href: "/dashboard", label: "Dashboard", icon: "dashboard" },

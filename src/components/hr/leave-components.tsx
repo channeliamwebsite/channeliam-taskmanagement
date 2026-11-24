@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { applyForLeave, cancelLeave, decideLeave, previewWorkingDays } from "@/lib/actions/hr";
+import { applyForLeave, cancelLeave, decideLeave, previewWorkingDays, recordLeave } from "@/lib/actions/hr";
 import {
   LEAVE_LABELS,
   LEAVE_STATUS_LABELS,
@@ -21,6 +21,7 @@ import {
   LEAVE_TYPES,
   formatDateRange,
   validateLeaveInput,
+  validateRecordLeaveInput,
   type LeaveApplication,
   type LeaveStatus,
   type LeaveType,
@@ -108,6 +109,112 @@ export function LeaveApplyForm({ today, clAvailable }: { today: string; clAvaila
         <Button onClick={submit} disabled={pending || days === 0}>
           {pending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
           Submit application
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Super admin: records leave on an employee's behalf, already approved
+ * (decided_by/decided_at track who and when). Same fields and live
+ * working-days preview as LeaveApplyForm, plus an employee picker; the same
+ * CL monthly-credit balance rule applies, no override.
+ */
+export function RecordLeaveForm({
+  employees,
+  clAvailableByUser,
+  today,
+}: {
+  employees: { userId: string; name: string }[];
+  clAvailableByUser: Record<string, number | null>;
+  today: string;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [userId, setUserId] = useState(employees[0]?.userId ?? "");
+  const [type, setType] = useState<LeaveType>("CL");
+  const [start, setStart] = useState(today);
+  const [end, setEnd] = useState(today);
+  const [reason, setReason] = useState("");
+  const [preview, setPreview] = useState<{ key: string; days: number | null } | null>(null);
+  const rangeKey = start && end && end >= start ? `${start}|${end}` : null;
+  const days = rangeKey && preview?.key === rangeKey ? preview.days : null;
+
+  useEffect(() => {
+    if (!rangeKey) return;
+    let live = true;
+    const [s, e] = rangeKey.split("|");
+    previewWorkingDays(s!, e!).then((r) => live && setPreview({ key: rangeKey, days: r.ok ? r.data.days : null }));
+    return () => {
+      live = false;
+    };
+  }, [rangeKey]);
+
+  function submit() {
+    const parsed = validateRecordLeaveInput({ userId, type, start, end, reason });
+    if (!parsed.ok) {
+      toast.error(parsed.error);
+      return;
+    }
+    startTransition(async () => {
+      const r = await recordLeave(parsed.value);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success("Leave recorded and approved.");
+      setReason("");
+    });
+  }
+
+  if (!employees.length) return <p className="text-sm text-muted-foreground">No active employees to record leave for.</p>;
+  const clAvailable = clAvailableByUser[userId] ?? null;
+  const overBalance = type === "CL" && days !== null && clAvailable !== null && days > clAvailable;
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="record-leave-employee">Employee</Label>
+          <NativeSelect id="record-leave-employee" value={userId} onChange={(e) => setUserId(e.target.value)}>
+            {employees.map((e) => (
+              <option key={e.userId} value={e.userId}>
+                {e.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="record-leave-type">Leave type</Label>
+          <NativeSelect id="record-leave-type" value={type} onChange={(e) => setType(e.target.value as LeaveType)}>
+            {LEAVE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {LEAVE_LABELS[t]}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="record-leave-start">Start date</Label>
+          <Input id="record-leave-start" type="date" value={start} onChange={(e) => setStart(e.target.value)} className="h-9" />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="record-leave-end">End date</Label>
+          <Input id="record-leave-end" type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} className="h-9" />
+        </div>
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor="record-leave-reason">Reason</Label>
+        <Textarea id="record-leave-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={1000} rows={3} placeholder="Briefly explain the reason" />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className={cn("text-sm", overBalance ? "text-destructive" : "text-muted-foreground")} aria-live="polite">
+          {days === null
+            ? "Choose the dates to see the working days."
+            : `${days} working day${days === 1 ? "" : "s"}${overBalance ? ` · only ${clAvailable} CL available now (later months bring new credits)` : ""}`}
+        </p>
+        <Button onClick={submit} disabled={pending || days === 0}>
+          {pending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+          Record leave
         </Button>
       </div>
     </div>

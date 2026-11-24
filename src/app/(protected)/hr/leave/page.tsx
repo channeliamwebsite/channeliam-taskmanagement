@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PageHeader, Section } from "@/components/app/page-header";
-import { LeaveReviewTable, type ReviewRow } from "@/components/hr/leave-components";
+import { LeaveReviewTable, RecordLeaveForm, type ReviewRow } from "@/components/hr/leave-components";
 import { ROUTE_ROLES } from "@/lib/auth/roles";
 import { getLeaveBalance, listLeaveForReview } from "@/lib/data/hr";
+import { listEmployees } from "@/lib/data/hr-people";
 import { BUSINESS_TIMEZONE, todayISO } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
@@ -40,10 +41,26 @@ export default async function LeaveReviewPage({ searchParams }: PageProps<"/hr/l
   );
   const rows: ReviewRow[] = apps.map((a) => ({ ...a, clAvailable: clByUser.get(a.userId) ?? null }));
 
+  // Record leave: active employees (Super Admin does not apply for or hold
+  // leave itself, so it is not a target here either), with each one's current
+  // CL balance for the form's live preview -- same getLeaveBalance call the
+  // review table above already makes per applicant.
+  const recordable = (await listEmployees({})).filter((e) => e.role !== "SUPER_ADMIN");
+  const clAvailableByUser: Record<string, number | null> = {};
+  await Promise.all(
+    recordable.map(async (e) => {
+      const balance = await getLeaveBalance(e.userId, thisYear);
+      clAvailableByUser[e.userId] = balance.find((b) => b.type === "CL")?.available ?? null;
+    }),
+  );
+
   const href = (status: Filter) => `/hr/leave?status=${status}${year !== thisYear ? `&year=${year}` : ""}`;
   return (
     <>
       <PageHeader title="Leave applications" description={`${year} · approve or reject. Nobody decides their own application.`} />
+      <Section title="Record leave" className="mb-4">
+        <RecordLeaveForm employees={recordable.map((e) => ({ userId: e.userId, name: e.name }))} clAvailableByUser={clAvailableByUser} today={today} />
+      </Section>
       <nav className="mb-4 flex flex-wrap gap-2" aria-label="Filter applications">
         {FILTERS.map((f) => (
           <Link

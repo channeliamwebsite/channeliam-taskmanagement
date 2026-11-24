@@ -123,6 +123,46 @@ set local request.jwt.claims to '{"sub":"f5000000-0000-4000-8000-000000000002","
 select lives_ok($$ select public.hr_decide_leave((select id from public.hr_leave_applications where user_id = 'f5000000-0000-4000-8000-000000000001'), true) $$,
   'another super admin can');
 
+-- ---------------------------------------------------------------------------
+-- Recording leave on an employee's behalf (hr_record_leave, 052): inserted
+-- already decided, no balance override, still fully audited and notified.
+-- iv2 (f5000000-...0005) has not been touched above, so its CL credits are
+-- still Nov/Dec 2026 + Jan 2027 (3), same as iv's before approval.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims to '{"sub":"f5000000-0000-4000-8000-000000000005","role":"authenticated"}';
+select throws_ok($$ select public.hr_record_leave('f5000000-0000-4000-8000-000000000005', 'CL', '2027-01-04', '2027-01-04', 'Self-record attempt') $$,
+  '42501', 'Only a super admin can record leave.', 'an individual cannot record their own leave');
+set local request.jwt.claims to '{"sub":"f5000000-0000-4000-8000-000000000003","role":"authenticated"}';
+select throws_ok($$ select public.hr_record_leave('f5000000-0000-4000-8000-000000000005', 'CL', '2027-01-04', '2027-01-04', 'Admin attempt') $$,
+  '42501', 'Only a super admin can record leave.', 'nor can an admin');
+set local request.jwt.claims to '{"sub":"f5000000-0000-4000-8000-000000000002","role":"authenticated"}';
+select throws_ok($$ select public.hr_record_leave('f5000000-0000-4000-8000-000000000002', 'CL', '2027-01-04', '2027-01-04', 'For myself') $$,
+  '42501', 'You cannot record leave for yourself.', 'a super admin cannot record leave for themselves');
+select lives_ok($$ select public.hr_record_leave('f5000000-0000-4000-8000-000000000005', 'CL', '2027-01-04', '2027-01-04', 'Recorded after the fact') $$,
+  'a super admin records a day of CL for iv2, already approved');
+select is((select format('%s|%s|%s|%s', status, working_days, decided_by, decided_at = now())
+           from public.hr_leave_applications where user_id = 'f5000000-0000-4000-8000-000000000005' and leave_type = 'CL'),
+  'APPROVED|1|f5000000-0000-4000-8000-000000000002|t', 'it is inserted already approved, with who recorded it and when');
+select throws_ok($$ select public.hr_record_leave('f5000000-0000-4000-8000-000000000005', 'WFH', '2027-01-04', '2027-01-04', 'Same day, different type') $$,
+  '23P01', null, 'a second record on the same date is refused, whatever its type');
+select throws_like($$ select public.hr_record_leave('f5000000-0000-4000-8000-000000000005', 'CL', '2027-01-11', '2027-01-13', 'Too much') $$,
+  'Not enough Casual Leave: 1 of 3 day(s)%', 'recording beyond the monthly CL credits is refused (1 of 3 already used by the 4th)');
+select is((select string_agg(action, ',' order by id) from public.attendance_audit_log where target_user_id = 'f5000000-0000-4000-8000-000000000005'),
+  'LEAVE_RECORDED', 'the recorded leave is audited distinctly from an applied-then-approved one');
+select is((select actor_id from public.attendance_audit_log where target_user_id = 'f5000000-0000-4000-8000-000000000005' and action = 'LEAVE_RECORDED'),
+  'f5000000-0000-4000-8000-000000000002'::uuid, 'with the super admin who recorded it');
+reset role;
+set local request.jwt.claims to '';
+select is((select count(*)::int from public.notifications
+           where dedupe_key = 'leave-submitted:' || (select id::text from public.hr_leave_applications where user_id = 'f5000000-0000-4000-8000-000000000005' and leave_type = 'CL')),
+  0, 'no super admin gets a misleading "to review" ping for an already-decided record');
+select is((select format('%s|%s', type, title) from public.notifications
+           where user_id = 'f5000000-0000-4000-8000-000000000005'
+             and dedupe_key = 'leave-decided:' || (select id::text from public.hr_leave_applications where user_id = 'f5000000-0000-4000-8000-000000000005' and leave_type = 'CL')),
+  'LEAVE_DECIDED|Leave recorded', 'iv2 is told their leave was recorded on their behalf');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f5000000-0000-4000-8000-000000000002","role":"authenticated"}';
+
 -- Allowance override and policy change (the CL credit cap per year), both audited.
 select lives_ok($$ insert into public.hr_leave_allowances (user_id, year, leave_type, days) values ('f5000000-0000-4000-8000-000000000004', 2027, 'CL', 15) $$,
   'a super admin sets iv''s 2027 CL allowance to 15');

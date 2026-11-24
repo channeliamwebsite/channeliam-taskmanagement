@@ -52,6 +52,18 @@ export function validateLeaveInput(raw: { type?: unknown; start?: unknown; end?:
   return { ok: true, value: { type: raw.type, start: raw.start, end: raw.end, reason } };
 }
 
+export type RecordLeaveInput = LeaveInput & { userId: string };
+
+/** Same rules as validateLeaveInput, plus the employee being recorded for (hr_record_leave, super admins only). */
+export function validateRecordLeaveInput(
+  raw: { userId?: unknown; type?: unknown; start?: unknown; end?: unknown; reason?: unknown },
+): { ok: true; value: RecordLeaveInput } | { ok: false; error: string } {
+  if (typeof raw.userId !== "string" || !raw.userId) return { ok: false, error: "Choose an employee." };
+  const base = validateLeaveInput(raw);
+  if (!base.ok) return base;
+  return { ok: true, value: { ...base.value, userId: raw.userId } };
+}
+
 export type LeaveApplication = {
   id: string;
   userId: string;

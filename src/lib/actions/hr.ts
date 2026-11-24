@@ -3,7 +3,7 @@
 import { refresh } from "next/cache";
 import { after } from "next/server";
 
-import { isIsoDate, validateLeaveInput, type LeaveInput } from "@/lib/hr/leave";
+import { isIsoDate, validateLeaveInput, validateRecordLeaveInput, type LeaveInput, type RecordLeaveInput } from "@/lib/hr/leave";
 
 import { notifyLeaveDecided, notifyLeaveRequested } from "./leave-email";
 import { NOT_PERMITTED, dbError, fail, getActor, isUuid, ok, type ActionResult } from "./shared";
@@ -53,6 +53,32 @@ export async function cancelLeave(id: string): Promise<ActionResult> {
   const { error } = await actor.supabase.rpc("hr_cancel_leave", { p_id: id });
   if (error) return fail(dbError(error, "Could not cancel the application."));
   refresh();
+  return ok();
+}
+
+/**
+ * Records leave already decided on an employee's behalf (super admins only),
+ * through hr_record_leave: the same date/reason/overlap/balance rules as
+ * applyForLeave, just inserted straight to APPROVED with decided_by/decided_at
+ * set to the recording super admin. No balance override.
+ */
+export async function recordLeave(input: Partial<Record<keyof RecordLeaveInput, unknown>>): Promise<ActionResult> {
+  const actor = await superAdmin();
+  if (!actor.ok) return actor;
+  const parsed = validateRecordLeaveInput(input);
+  if (!parsed.ok) return fail(parsed.error);
+  const v = parsed.value;
+  if (!isUuid(v.userId)) return fail("Invalid employee.");
+  const { data: applicationId, error } = await actor.supabase.rpc("hr_record_leave", {
+    p_user_id: v.userId,
+    p_type: v.type,
+    p_start: v.start,
+    p_end: v.end,
+    p_reason: v.reason,
+  });
+  if (error) return fail(dbError(error, "Could not record the leave. Please try again."));
+  refresh();
+  if (applicationId) after(() => notifyLeaveDecided(actor, applicationId, true).catch((e) => console.error("[leave-email] recorded notify threw", e)));
   return ok();
 }
 

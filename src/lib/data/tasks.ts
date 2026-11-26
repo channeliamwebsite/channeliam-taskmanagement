@@ -232,6 +232,36 @@ export async function listTasks(filters: TaskFilters): Promise<TaskSummary[]> {
   return sorted.map((r) => toSummary(r, counts));
 }
 
+/**
+ * Every project id the caller has ever had a task in within the workspace
+ * (open or closed, any age) -- RLS-scoped, id/project_id only, no joins. For
+ * callers (e.g. the dashboard's "My projects") that need full assignment
+ * history but not the full task rows listTasks would otherwise require to
+ * cover the same ground.
+ * @param opts.workspaceIds Company-wide callers only (Operational Manager):
+ * every department workspace to search at once, instead of `workspaceId`,
+ * matching listTasks's own `workspaceId`/`workspaceIds` convention. RLS still
+ * applies per row, so this only ever widens the search to workspaces the
+ * caller could already read -- it cannot add access.
+ */
+export async function listAssignedProjectIds(workspaceId: string, userId: string, opts: { workspaceIds?: string[] } = {}): Promise<string[]> {
+  const supabase = await createClient();
+  const assignee = assigneeFilters({ assigneeId: userId });
+  const select = ["id", "project_id", ...assignee.embeds].join(",");
+
+  const rows = await fetchAllPages<{ id: string; project_id: string }>((after) => {
+    let query = supabase.from("tasks").select(select);
+    query = opts.workspaceIds ? query.in("workspace_id", opts.workspaceIds) : query.eq("workspace_id", workspaceId);
+    for (const c of assignee.conditions) {
+      query = c.op === "eq" ? query.eq(c.column, c.value as string) : query.in(c.column, c.value as string[]);
+    }
+    if (after) query = query.gt("id", after);
+    return query.order("id").limit(PAGE_LIMIT) as unknown as PromiseLike<{ data: { id: string; project_id: string }[] | null; error: unknown }>;
+  }, "Failed to load assigned projects");
+
+  return [...new Set(rows.map((r) => r.project_id))];
+}
+
 /** Rows per page on the task list (/tasks). */
 export const TASKS_PER_PAGE = 50;
 

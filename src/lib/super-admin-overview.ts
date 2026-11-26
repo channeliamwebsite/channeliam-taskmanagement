@@ -194,6 +194,106 @@ export function projectProgress(projects: readonly ProjectInput[], tasks: readon
     );
 }
 
+// ---------------------------------------------------------------------------
+// *FromCounts: the same three shapes as employeePerformance/departmentProgress/
+// projectProgress, but merging pre-aggregated rows (from the company_*_task_counts
+// RPCs in migration 053) instead of scanning every task in JS. Each RPC is
+// sparse -- a row only for an entity with >=1 matching task -- so these
+// functions supply the zero default for everyone else, the same way
+// projects.ts's toSummary already defaults a project project_task_counts
+// never returned a row for. statusCounts/employeePerformance/departmentProgress/
+// projectProgress above are kept, unused by the dashboard now, so the two
+// paths can still be compared (see super-admin-overview.test.ts).
+// ---------------------------------------------------------------------------
+
+export type EmployeeCountsRow = StatusCounts & { userId: string };
+
+/** Mirrors employeePerformance, merging RPC rows instead of scanning tasks. */
+export function employeePerformanceFromCounts(
+  rows: readonly EmployeeCountsRow[],
+  members: readonly { userId: string; fullName: string | null; email: string | null; role: UserRole; isActive: boolean; team: string | null }[],
+): EmployeePerformance[] {
+  const byUser = new Map(rows.map((r) => [r.userId, r]));
+  const zero: StatusCounts = { total: 0, completed: 0, inProgress: 0, pending: 0, blocked: 0, overdue: 0 };
+  return members
+    .filter((m) => m.isActive && m.role !== "SUPER_ADMIN")
+    .map((m) => {
+      const c = byUser.get(m.userId) ?? zero;
+      return {
+        total: c.total,
+        completed: c.completed,
+        inProgress: c.inProgress,
+        pending: c.pending,
+        blocked: c.blocked,
+        overdue: c.overdue,
+        userId: m.userId,
+        name: m.fullName?.trim() || m.email || "Unknown",
+        department: m.team?.trim() || null,
+        completionPercent: c.total ? Math.round((c.completed / c.total) * 100) : 0,
+      };
+    });
+}
+
+export type DepartmentCountsRow = { department: string; total: number; completed: number };
+
+/** Mirrors departmentProgress, merging RPC rows instead of scanning tasks. */
+export function departmentProgressFromCounts(
+  rows: readonly DepartmentCountsRow[],
+  members: readonly { userId: string; role: UserRole; isActive: boolean; team: string | null }[],
+): DepartmentProgress[] {
+  const active = members.filter((m) => m.isActive && m.role !== "SUPER_ADMIN");
+  const byDepartment = new Map(rows.map((r) => [r.department, r]));
+  const employeesByDepartment = new Map<string, number>();
+  for (const m of active) {
+    const department = m.team?.trim() || "No department";
+    employeesByDepartment.set(department, (employeesByDepartment.get(department) ?? 0) + 1);
+  }
+  return [...employeesByDepartment.entries()]
+    .map(([department, employees]) => {
+      const c = byDepartment.get(department) ?? { total: 0, completed: 0 };
+      return { department, employees, total: c.total, completed: c.completed, completionPercent: c.total ? Math.round((c.completed / c.total) * 100) : 0 };
+    })
+    .sort((a, b) => (a.department === "No department" ? 1 : b.department === "No department" ? -1 : a.department.localeCompare(b.department)));
+}
+
+export type ProjectCountsRow = StatusCounts & {
+  projectId: string;
+  nextDue: string | null;
+  lastUpdate: string | null;
+  assignees: string[];
+};
+
+/** Mirrors projectProgress, merging RPC rows instead of scanning tasks. */
+export function projectProgressFromCounts(rows: readonly ProjectCountsRow[], projects: readonly ProjectInput[]): ProjectProgress[] {
+  const byProject = new Map(rows.map((r) => [r.projectId, r]));
+  const zero: ProjectCountsRow = { projectId: "", total: 0, completed: 0, inProgress: 0, pending: 0, blocked: 0, overdue: 0, nextDue: null, lastUpdate: null, assignees: [] };
+  return projects
+    .map((project) => {
+      const c = byProject.get(project.id) ?? zero;
+      return {
+        total: c.total,
+        completed: c.completed,
+        inProgress: c.inProgress,
+        pending: c.pending,
+        blocked: c.blocked,
+        overdue: c.overdue,
+        project,
+        // Re-sorted here with the same comparator projectProgress itself uses
+        // ([...names].sort((a, b) => a.localeCompare(b))), rather than trusting
+        // the RPC's own `order by` to agree with it: Postgres's default
+        // collation and JS's localeCompare can disagree on mixed-case/
+        // non-ASCII names, so this is the one place that must match exactly.
+        assignees: [...c.assignees].sort((a, b) => a.localeCompare(b)),
+        nextDue: c.nextDue,
+        lastUpdate: c.lastUpdate,
+      };
+    })
+    .sort(
+      (a, b) =>
+        (a.project.clientName ?? "~").localeCompare(b.project.clientName ?? "~") || a.project.name.localeCompare(b.project.name),
+    );
+}
+
 export type MeetingInput = {
   id: string;
   title: string;

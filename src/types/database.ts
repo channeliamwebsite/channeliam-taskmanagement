@@ -1725,6 +1725,52 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      company_department_task_counts: {
+        Args: { p_range_from?: string; p_range_to?: string; p_timezone: string; p_workspace_ids: string[] }
+        Returns: {
+          completed: number
+          department: string
+          total: number
+        }[]
+      }
+      company_employee_task_counts: {
+        Args: { p_range_from?: string; p_range_to?: string; p_timezone: string; p_today: string; p_workspace_ids: string[] }
+        Returns: {
+          blocked: number
+          completed: number
+          in_progress: number
+          overdue: number
+          pending: number
+          total: number
+          user_id: string
+        }[]
+      }
+      company_project_task_counts: {
+        Args: { p_range_from?: string; p_range_to?: string; p_timezone: string; p_today: string; p_workspace_ids: string[] }
+        Returns: {
+          assignees: string[] | null
+          blocked: number
+          completed: number
+          in_progress: number
+          last_update: string | null
+          next_due: string | null
+          overdue: number
+          pending: number
+          project_id: string
+          total: number
+        }[]
+      }
+      company_task_status_counts: {
+        Args: { p_today: string; p_workspace_ids: string[] }
+        Returns: {
+          blocked: number
+          completed: number
+          in_progress: number
+          overdue: number
+          pending: number
+          total: number
+        }[]
+      }
       attendance_check_in: { Args: { p_workspace_id: string }; Returns: string }
       attendance_check_out: { Args: Record<PropertyKey, never>; Returns: string }
       attendance_end_break: { Args: Record<PropertyKey, never>; Returns: string }

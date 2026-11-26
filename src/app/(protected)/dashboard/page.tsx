@@ -42,7 +42,13 @@ import { summarizeTracking } from "@/lib/daily-tracking";
 import { loadError } from "@/lib/data/errors";
 import { loadTeamToday } from "@/lib/data/team-today-data";
 import { listProjectOptions, listProjects, type ProjectSummary } from "@/lib/data/projects";
-import { listTasks, type TaskSummary } from "@/lib/data/tasks";
+import { listAssignedProjectIds, listTasks, type TaskSummary } from "@/lib/data/tasks";
+import {
+  loadCompanyDepartmentTaskCounts,
+  loadCompanyEmployeeTaskCounts,
+  loadCompanyProjectTaskCounts,
+  loadCompanyTaskStatusCounts,
+} from "@/lib/data/super-admin-aggregates";
 import { uniqueById } from "@/lib/task-query";
 import {
   canCreateProjects,
@@ -60,12 +66,10 @@ import { listLeaveForReview } from "@/lib/data/hr";
 import { dashboardCounts, REPORT_LABELS, type DashboardCounts, type ReportStatus } from "@/lib/hr/report";
 import { isCompletedOn, isInTodaysWorkload } from "@/lib/scheduling";
 import {
-  departmentProgress,
-  inDateRange,
+  departmentProgressFromCounts,
   employeeCounts,
-  employeePerformance,
-  projectProgress,
-  statusCounts,
+  employeePerformanceFromCounts,
+  projectProgressFromCounts,
   type DateRange,
 } from "@/lib/super-admin-overview";
 import { createClient } from "@/lib/supabase/server";
@@ -93,13 +97,44 @@ function parseRange(from: unknown, to: unknown): DateRange | null {
   return a <= b ? { from: a, to: b } : { from: b, to: a };
 }
 
+/** ISO timestamp 48h ago -- a safe superset of "today" in any timezone (same bound My Day already uses). */
+function recentCompletedCutoff(): string {
+  return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+}
+
 /**
- * Individual: only their own tasks, every status and date — My Day and this
- * dashboard's "my projects" rely on the person's full task history, not just
- * what's open today (same scope as my-day/page.tsx).
+ * Individual: open tasks (any age -- an overdue or carried-forward task from
+ * months ago must still show up) plus tasks completed very recently, the
+ * same bounded shape my-day/page.tsx already fetches. Nothing here looks
+ * further back into completed/cancelled history. "My projects" below no
+ * longer comes from this array (see assignedProjectIds / listAssignedProjectIds).
  */
-function individualTaskScope(workspaceId: string, userId: string) {
-  return listTasks({ workspaceId, assigneeId: userId });
+function individualTaskScope(workspaceId: string, userId: string): Promise<TaskSummary[]> {
+  return Promise.all([
+    listTasks({ workspaceId, assigneeId: userId, openOnly: true }),
+    listTasks({ workspaceId, assigneeId: userId, status: "COMPLETED", completedAfter: recentCompletedCutoff() }),
+  ]).then(([open, completed]) => uniqueById([...open, ...completed]));
+}
+
+/**
+ * Operational Manager: the same bounded shape as individualTaskScope above
+ * -- open tasks (any age) plus tasks completed very recently -- but scoped
+ * company-wide (every department workspace it can see, via workspaceIds)
+ * instead of one workspace, since it has no assignee filter: unlike
+ * Individual's old fetch, OM's old fetch was never scoped to "my tasks"
+ * either, so this preserves the exact same "every task in these workspaces"
+ * breadth, just bounded by status/recency instead of by age. `workspaceIds`
+ * is department workspaces only (departmentWorkspacesOf already excludes
+ * every personal workspace, including the caller's own), so this can never
+ * reach into another Operational Manager's private workspace. "My projects"
+ * below no longer comes from this array (see assignedProjectIds /
+ * listAssignedProjectIds).
+ */
+function operationalManagerTaskScope(workspaceId: string, workspaceIds: string[]): Promise<TaskSummary[]> {
+  return Promise.all([
+    listTasks({ workspaceId, workspaceIds, openOnly: true }),
+    listTasks({ workspaceId, workspaceIds, status: "COMPLETED", completedAfter: recentCompletedCutoff() }),
+  ]).then(([open, completed]) => uniqueById([...open, ...completed]));
 }
 
 /**
@@ -127,26 +162,39 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   const isAdmin = session.profile.role === "ADMIN";
   const isIndividual = session.profile.role === "INDIVIDUAL";
   const isOperationalManager = session.profile.role === "OPERATIONAL_MANAGER";
-  // Super Admin and Operational Manager: tasks, projects and members are
+  // Super Admin and Operational Manager: projects and members are
   // company-wide, across every department (non-personal) workspace -- same
   // getCompanyWideMembers()/departmentWorkspacesOf() pattern as the
-  // Employees, Team Today, Tasks, Clients and Projects pages. Admin and
-  // Individual keep their own existing task-scoping helpers, unchanged.
-  // Daily tracking stays Super Admin only -- it only feeds SuperAdminDashboard
-  // below, which Operational Manager does not render.
+  // Employees, Team Today, Tasks, Clients and Projects pages. Tasks are
+  // scoped per role by their own helper below (Super Admin needs none at
+  // all now; Operational Manager, Admin and Individual each have their own
+  // bounded shape). Daily tracking stays Super Admin only -- it only feeds
+  // SuperAdminDashboard below, which Operational Manager does not render.
   const isCompanyWideReader = isSuperAdmin || isOperationalManager;
   const departmentWorkspaces = isCompanyWideReader ? departmentWorkspacesOf(await getMyWorkspaces()) : [];
   const departmentWorkspaceIds = departmentWorkspaces.map((w) => w.id);
   const workspaceNameById = new Map(departmentWorkspaces.map((w) => [w.id, w.name]));
-  const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients] = await Promise.all([
-    // Super admin and Operational Manager: company-wide, every department
-    // workspace. Admin / Individual: scoped to what their own dashboard view
-    // can show (see the two helpers above).
-    isCompanyWideReader
-      ? listTasks({ workspaceId: workspace.id, workspaceIds: departmentWorkspaceIds })
-      : isAdmin
-        ? adminTaskScope(workspace.id, session.user.id)
-        : individualTaskScope(workspace.id, session.user.id),
+  // Individual and Operational Manager: IndividualDashboard's "My projects"
+  // needs every project the caller has ever had a task in (open or closed,
+  // any age) -- unlike individualTaskScope/operationalManagerTaskScope
+  // above, which are now both bounded to open + recently-completed, that
+  // genuinely needs full history, so it's served by a separate id/project_id
+  // only query (no joins) instead of widening either scope back out.
+  const needsProjectHistory = isIndividual || isOperationalManager;
+  const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients, assignedProjectIds] = await Promise.all([
+    // Super Admin no longer needs any task rows fetched here at all: the
+    // four company_*_task_counts RPCs (migration 053) and a dedicated bounded
+    // query for Upcoming Deadlines, both below, replace this fetch entirely.
+    // Operational Manager, Admin and Individual all fetch a bounded shape now
+    // (open + recently-completed); only the workspace scope differs between
+    // them (see the three helpers above).
+    isSuperAdmin
+      ? Promise.resolve([])
+      : isOperationalManager
+        ? operationalManagerTaskScope(workspace.id, departmentWorkspaceIds)
+        : isAdmin
+          ? adminTaskScope(workspace.id, session.user.id)
+          : individualTaskScope(workspace.id, session.user.id),
     isCompanyWideReader ? listProjects(workspace.id, { workspaceIds: departmentWorkspaceIds }) : listProjects(workspace.id),
     isCompanyWideReader ? getCompanyWideMembers() : getWorkspaceMembers(workspace.id),
     isAdmin ? loadTeamToday(session, workspace) : Promise.resolve(null),
@@ -171,22 +219,43 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
     isAdmin ? canCreateProjects(workspace.id, session.user.id, session.profile.role) : Promise.resolve(false),
     // RLS-scoped to the active workspace, so the picker lists only clients the admin can attach a project to.
     isAdmin ? listClients(workspace.id) : Promise.resolve([]),
+    needsProjectHistory
+      ? listAssignedProjectIds(workspace.id, session.user.id, isOperationalManager ? { workspaceIds: departmentWorkspaceIds } : undefined)
+      : Promise.resolve(null),
   ]);
 
   const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
   const props = { session, workspace, tasks, projects, members, today: workspaceToday(workspace) };
 
   if (isSuperAdmin) {
-    // Company-wide figures (super admins read every workspace, 025).
+    // Company-wide figures (super admins read every workspace, 025). Task
+    // status/employee/department/project figures below all come from the
+    // company_*_task_counts RPCs (migration 053), not from any task fetch.
     const params = await searchParams;
     const range = parseRange(params.from, params.to);
     // Today's attendance from the same source and rules as /hr (company-wide, India time).
     const attendanceDay = todayISO(new Date(), BUSINESS_TIMEZONE);
-    const [attendanceReport, pendingLeave] = await Promise.all([
-      buildRangeReport(attendanceDay, attendanceDay),
-      // Same query as HR → Leave Applications (pending, this year).
-      listLeaveForReview("PENDING", Number(attendanceDay.slice(0, 4))),
-    ]);
+    const [attendanceReport, pendingLeave, taskStatusCounts, employeeCountsRows, departmentCountsRows, projectCountsRows, upcomingDeadlines] =
+      await Promise.all([
+        buildRangeReport(attendanceDay, attendanceDay),
+        // Same query as HR → Leave Applications (pending, this year).
+        listLeaveForReview("PENDING", Number(attendanceDay.slice(0, 4))),
+        // Company-wide, all-time (statusCounts never takes a range -- "All time" is the default date filter).
+        loadCompanyTaskStatusCounts(departmentWorkspaceIds, props.today),
+        loadCompanyEmployeeTaskCounts(departmentWorkspaceIds, props.today, workspace.timezone, range),
+        loadCompanyDepartmentTaskCounts(departmentWorkspaceIds, workspace.timezone, range),
+        loadCompanyProjectTaskCounts(departmentWorkspaceIds, props.today, workspace.timezone, range),
+        // Dedicated bounded query for Upcoming Deadlines: open, company-wide,
+        // due strictly after today through 7 days out -- independent of the
+        // performance date filter above (same rule as My Day/Individual).
+        listTasks({
+          workspaceId: workspace.id,
+          workspaceIds: departmentWorkspaceIds,
+          openOnly: true,
+          dueFrom: addDays(props.today, 1),
+          dueTo: addDays(props.today, 7),
+        }),
+      ]);
     const attendance = dashboardCounts(attendanceReport.reports.filter((r) => r.employee.isActive).map((r) => r.days[0]));
     // Today's attendance status per employee, for the Employee overview table --
     // same report already fetched above for the company-wide counts, no new query.
@@ -201,6 +270,11 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
         tracking={tracking}
         pendingLeave={pendingLeave}
         workspaceNameById={workspaceNameById}
+        taskStatusCounts={taskStatusCounts}
+        employeeCountsRows={employeeCountsRows}
+        departmentCountsRows={departmentCountsRows}
+        projectCountsRows={projectCountsRows}
+        upcomingDeadlines={upcomingDeadlines}
       />
     );
   }
@@ -250,7 +324,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
           <TeamTodayPanel rows={team.rows} tasksByUser={team.tasksByUser} totals={team.totals} today={team.today} />
         </Section>
       ) : null}
-      <IndividualDashboard {...props} report={myReport} timeZone={workspace.timezone} />
+      <IndividualDashboard {...props} report={myReport} timeZone={workspace.timezone} assignedProjectIds={assignedProjectIds} />
     </>
   );
 }
@@ -272,18 +346,27 @@ type SuperAdminProps = Props & {
   tracking: Awaited<ReturnType<typeof loadDailyTracking>>;
   pendingLeave: Awaited<ReturnType<typeof listLeaveForReview>>;
   workspaceNameById: Map<string, string>;
+  /** Company-wide task aggregates (migration 053's company_*_task_counts RPCs), replacing `tasks` for this branch. */
+  taskStatusCounts: Awaited<ReturnType<typeof loadCompanyTaskStatusCounts>>;
+  employeeCountsRows: Awaited<ReturnType<typeof loadCompanyEmployeeTaskCounts>>;
+  departmentCountsRows: Awaited<ReturnType<typeof loadCompanyDepartmentTaskCounts>>;
+  projectCountsRows: Awaited<ReturnType<typeof loadCompanyProjectTaskCounts>>;
+  /** Open, company-wide, due tomorrow through 7 days out -- a dedicated bounded query, not derived from `tasks`. */
+  upcomingDeadlines: TaskSummary[];
 };
 
 
 /**
  * Super admin: monitoring-only company dashboard (layout of the approved
- * reference, 2026-11-06). Every figure comes from the existing calculations in
- * lib/super-admin-overview and the existing report / attendance / leave data.
- * No task-creation actions and no meetings here (meetings: Team Today).
+ * reference, 2026-11-06). Task status/employee/department/project figures
+ * come from the company_*_task_counts RPCs (migration 053) merged with the
+ * existing members/projects lists via the *FromCounts functions in
+ * lib/super-admin-overview; Upcoming Deadlines comes from its own dedicated
+ * bounded query. Everything else is the existing report / attendance / leave
+ * data. No task-creation actions and no meetings here (meetings: Team Today).
  */
 function SuperAdminDashboard({
   workspace,
-  tasks,
   projects,
   members,
   today,
@@ -294,6 +377,11 @@ function SuperAdminDashboard({
   attendanceStatusByUser,
   pendingLeave,
   workspaceNameById,
+  taskStatusCounts,
+  employeeCountsRows,
+  departmentCountsRows,
+  projectCountsRows,
+  upcomingDeadlines,
 }: SuperAdminProps) {
   // Admins and Individuals who are active (super admins review; they do not report).
   const employees = members
@@ -309,25 +397,22 @@ function SuperAdminDashboard({
   const eveningDone = employees.filter((e) => reportsBy.get(e.userId)?.eveningSubmittedAt).length;
 
   // Each piece of work counted once (parents through their subtasks, cancelled excluded).
-  const counts = statusCounts(tasks, today);
+  const counts = taskStatusCounts;
   const people = employeeCounts(members);
   const completionPercent = counts.total ? Math.round((counts.completed / counts.total) * 100) : 0;
-  const performance = employeePerformance(tasks, members, today, range, workspace.timezone).sort((a, b) => b.total - a.total);
-  const departments = departmentProgress(tasks, members, range, workspace.timezone);
+  const performance = employeePerformanceFromCounts(employeeCountsRows, members).sort((a, b) => b.total - a.total);
+  const departments = departmentProgressFromCounts(departmentCountsRows, members);
   // Same date rule as the performance figures (due / scheduled / completed in the range).
   const projectStatus = new Map(projects.map((p) => [p.id, p.status]));
-  const projectRows = projectProgress(projects, tasks.filter((t) => inDateRange(t, range, workspace.timezone)), today);
+  const projectRows = projectProgressFromCounts(projectCountsRows, projects);
   const rangeLabel = range ? `${formatDate(range.from)} – ${formatDate(range.to)}` : "All time";
   const presets = [
     { label: "Last 15 days", from: addDays(today, -14), to: today },
     { label: "Last 30 days", from: addDays(today, -29), to: today },
   ];
   const head = "text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase";
-  // Company-wide, independent of the performance date filter above (same rule as My Day/Individual: due within 7 days, still open).
-  const deadlineHorizon = addDays(today, 7);
-  const upcomingCompanyWide = tasks
-    .filter((t) => isOpen(t) && t.dueDate && t.dueDate > today && t.dueDate <= deadlineHorizon)
-    .sort(byDue);
+  // Already open/company-wide/due-in-range from its own dedicated query above; just needs the display order.
+  const upcomingCompanyWide = [...upcomingDeadlines].sort(byDue);
 
   return (
     <>
@@ -1001,13 +1086,22 @@ async function myReportToday(workspaceId: string, userId: string, today: string)
 type IndividualProps = Props & {
   report: { morning_submitted_at: string | null; evening_submitted_at: string | null } | null;
   timeZone: string;
+  /**
+   * Individual and Operational Manager: every project the caller has ever
+   * had a task in (open or closed, any age), from listAssignedProjectIds --
+   * `tasks` is now bounded to open + recently-completed for both, so it can
+   * no longer answer this by itself. Null only for a role this component
+   * doesn't otherwise render for; the `?? mine.map(...)` fallback below is
+   * purely defensive.
+   */
+  assignedProjectIds: string[] | null;
 };
 
 /**
  * Individual: today's work first (same date rules as My Day), the daily
  * update status next to it, then what is coming up and project progress.
  */
-function IndividualDashboard({ session, tasks, projects, today, report, timeZone }: IndividualProps) {
+function IndividualDashboard({ session, tasks, projects, today, report, timeZone, assignedProjectIds }: IndividualProps) {
   const me = session.user.id;
   const mine = tasks.filter((t) => t.assignees.some((a) => a.userId === me));
   // Today's work: scheduled today, carried forward, due today (unscheduled) or overdue.
@@ -1027,7 +1121,11 @@ function IndividualDashboard({ session, tasks, projects, today, report, timeZone
   const upcoming = mine
     .filter((t) => isOpen(t) && t.dueDate && t.dueDate > today && t.dueDate <= weekEnd)
     .sort(byDue);
-  const myProjectIds = new Set(mine.map((t) => t.projectId));
+  // From assignedProjectIds (full history), not from `mine` (now bounded to
+  // open + recently-completed for both Individual and Operational Manager):
+  // a project the caller only ever had an old completed task in must still
+  // show up here.
+  const myProjectIds = new Set(assignedProjectIds ?? mine.map((t) => t.projectId));
   const myProjects = projects.filter((p) => myProjectIds.has(p.id));
   const textLink = "text-xs text-muted-foreground hover:text-foreground hover:underline";
 

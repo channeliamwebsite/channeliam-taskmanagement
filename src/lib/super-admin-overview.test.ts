@@ -3,12 +3,15 @@ import { describe, it } from "node:test";
 
 import {
   departmentProgress,
+  departmentProgressFromCounts,
   employeeCounts,
   employeePerformance,
+  employeePerformanceFromCounts,
   inDateRange,
   formatClock,
   meetingOccurrences,
   projectProgress,
+  projectProgressFromCounts,
   statusCounts,
   todaysWork,
   type MeetingInput,
@@ -188,5 +191,66 @@ describe("employeePerformance / departmentProgress", () => {
       { department: "Design", employees: 2, total: 3, completed: 1, completionPercent: 33 },
       { department: "No department", employees: 1, total: 1, completed: 0, completionPercent: 0 },
     ]);
+  });
+
+  // Migration 053 replaces the Super Admin dashboard's task fetch with four
+  // RPCs that pre-aggregate these same counts in the database; *FromCounts
+  // merges their (sparse) rows instead of scanning `tasks`. These tests keep
+  // both paths in exact agreement on the very fixtures above, by building
+  // each RPC's row shape from what the OLD function already computed for a
+  // given employee/department (an RPC returns a row only when total > 0 --
+  // sparse -- which is applied here as well) and confirming the merge
+  // function reproduces the OLD function's full output, including the
+  // zero-row entities the RPC itself never returns a row for.
+  describe("employeePerformanceFromCounts / departmentProgressFromCounts equivalence", () => {
+    it("matches employeePerformance exactly, all time", () => {
+      const old = employeePerformance(tasks, members, TODAY, null, "Asia/Kolkata");
+      const rows = old.filter((r) => r.total > 0).map((r) => ({
+        userId: r.userId, total: r.total, completed: r.completed, inProgress: r.inProgress, pending: r.pending, blocked: r.blocked, overdue: r.overdue,
+      }));
+      assert.deepEqual(employeePerformanceFromCounts(rows, members), old);
+    });
+
+    it("matches employeePerformance exactly, with a date range", () => {
+      const range = { from: "2026-10-20", to: "2026-10-21" };
+      const old = employeePerformance(tasks, members, TODAY, range, "Asia/Kolkata");
+      const rows = old.filter((r) => r.total > 0).map((r) => ({
+        userId: r.userId, total: r.total, completed: r.completed, inProgress: r.inProgress, pending: r.pending, blocked: r.blocked, overdue: r.overdue,
+      }));
+      assert.deepEqual(employeePerformanceFromCounts(rows, members), old);
+    });
+
+    it("matches departmentProgress exactly, including a zero-task department", () => {
+      const old = departmentProgress(tasks, members, null, "Asia/Kolkata");
+      const rows = old.filter((r) => r.total > 0).map((r) => ({ department: r.department, total: r.total, completed: r.completed }));
+      assert.deepEqual(departmentProgressFromCounts(rows, members), old);
+    });
+  });
+});
+
+describe("projectProgressFromCounts equivalence", () => {
+  it("matches projectProgress exactly, including last_update on a project with no countable tasks", () => {
+    const projects = [
+      { id: "p1", name: "Website", clientId: "c1", clientName: "Acme", ownerName: "Alex", dueDate: "2026-11-30" },
+      { id: "cancelled-only", name: "Shelved", clientId: null, clientName: null, ownerName: null, dueDate: null },
+      { id: "empty", name: "New", clientId: null, clientName: null, ownerName: null, dueDate: null },
+    ];
+    const tasks = [
+      task({ id: "a", status: "COMPLETED", assignees: [{ userId: "u1", fullName: "Ivy", email: null }], updatedAt: "2026-10-26T00:00:00Z" }),
+      task({ id: "b", status: "TODO", dueDate: "2026-10-25", assignees: [{ userId: "u2", fullName: "Raj", email: null }], updatedAt: "2026-10-27T09:00:00Z" }),
+      task({ id: "c", status: "BLOCKED", dueDate: "2026-11-05", assignees: [{ userId: "u1", fullName: "Ivy", email: null }] }),
+      // The project's only task is cancelled: zero countable work, but a real lastUpdate.
+      task({ id: "shelved", status: "CANCELLED", projectId: "cancelled-only", updatedAt: "2026-10-05T00:00:00Z" }),
+    ];
+    const old = projectProgress(projects, tasks, TODAY);
+    // Sparse like the RPC: a row only when there is countable work OR a
+    // lastUpdate to report (never for "empty", which has neither).
+    const rows = old
+      .filter((r) => r.total > 0 || r.lastUpdate !== null)
+      .map((r) => ({
+        projectId: r.project.id, total: r.total, completed: r.completed, inProgress: r.inProgress, pending: r.pending, blocked: r.blocked,
+        overdue: r.overdue, nextDue: r.nextDue, lastUpdate: r.lastUpdate, assignees: r.assignees,
+      }));
+    assert.deepEqual(projectProgressFromCounts(rows, projects), old);
   });
 });

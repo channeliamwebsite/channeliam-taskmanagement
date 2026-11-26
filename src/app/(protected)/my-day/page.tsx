@@ -14,6 +14,7 @@ import { isCarriedForward, listTasks, toTaskRows, type TaskSummary } from "@/lib
 import { getWorkspaceMembers, workspaceToday } from "@/lib/data/workspace";
 import { PRIORITY_RANK, addDaysISO, displayName, formatDate, isOverdue } from "@/lib/domain";
 import { isCompletedOn } from "@/lib/scheduling";
+import { uniqueById } from "@/lib/task-query";
 
 import { NoWorkspace, getPageContext } from "../_components/context";
 
@@ -29,6 +30,11 @@ function byPriorityThenDue(a: TaskSummary, b: TaskSummary) {
   );
 }
 
+/** ISO timestamp 48h ago -- a safe superset of "today" in any timezone (see the tasks fetch below). */
+function recentCompletedCutoff(): string {
+  return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+}
+
 export default async function MyDayPage() {
   const { session, workspace } = await getPageContext();
   // Super admins have no personal day plan (decided 2026-11-06): they start on the company dashboard.
@@ -38,8 +44,19 @@ export default async function MyDayPage() {
   const today = workspaceToday(workspace);
   const tomorrow = addDaysISO(today, 1);
   const canAssign = session.permissions.assignTasks;
+  // Every section below (carried forward, today's/tomorrow's/unscheduled
+  // tasks, completed today) only ever needs open tasks (any age -- an
+  // unfinished task from months ago must still carry forward) or tasks
+  // completed very recently: nothing here looks further back into completed
+  // or cancelled history. The 48-hour window is a superset of "today" in any
+  // timezone (isCompletedOn below does the exact local-day check), the same
+  // bound loadTeamToday already uses for Team Today.
+  const recentCompletedAfter = recentCompletedCutoff();
   const [tasks, meetings, projects, members, clientOptions] = await Promise.all([
-    listTasks({ workspaceId: workspace.id, assigneeId: session.user.id }),
+    Promise.all([
+      listTasks({ workspaceId: workspace.id, assigneeId: session.user.id, openOnly: true }),
+      listTasks({ workspaceId: workspace.id, assigneeId: session.user.id, status: "COMPLETED", completedAfter: recentCompletedAfter }),
+    ]).then(([open, completed]) => uniqueById([...open, ...completed])),
     listMeetingLinks(workspace.id, { activeOnly: true }),
     canAssign ? listProjectOptions(workspace.id) : Promise.resolve([]),
     canAssign ? getWorkspaceMembers(workspace.id) : Promise.resolve([]),

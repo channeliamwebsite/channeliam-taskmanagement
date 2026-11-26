@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { MobileNav, Sidebar, type NavItem, type NavSection } from "@/components/app/nav";
 import { NotificationsMenu, SearchBox, UserMenu, type NotificationItem } from "@/components/app/topbar-menus";
-import { requireSession } from "@/lib/auth/dal";
+import { requireSessionWithExtra } from "@/lib/auth/dal";
 import { ROLE_LABELS, getPermissions } from "@/lib/auth/roles";
 import { displayName } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/server";
@@ -35,8 +35,12 @@ async function getNotifications(userId: string) {
 }
 
 export async function AppShell({ children }: { children: ReactNode }) {
-  const session = await requireSession();
-  const notifications = await getNotifications(session.user.id);
+  // Notifications only need the user id, not the resolved profile, so they
+  // load concurrently with the profile instead of waiting for it -- nothing
+  // below still renders until both authentication and profile validation
+  // complete (requireSessionWithExtra enforces exactly the same check as
+  // requireSession).
+  const { session, extra: notifications } = await requireSessionWithExtra(getNotifications);
 
   const permissions = getPermissions(session.profile.role);
   // Navigation adapts to the role. Hiding a link is only convenience: every
@@ -62,7 +66,9 @@ export async function AppShell({ children }: { children: ReactNode }) {
     items: [
       { href: "/clients", label: "Clients", icon: "clients" },
       { href: "/projects", label: "Projects", icon: "projects" },
-      ...(permissions.viewTeamReports ? [{ href: "/client-reports", label: "Client Reports", icon: "myreports" } as NavItem] : []),
+      ...(permissions.viewTeamReports
+        ? [{ href: "/client-reports", label: "Client Reports", icon: "myreports", prefetch: false } as NavItem]
+        : []),
     ],
   };
   // Admin only: monitoring the team's work. No separate "Assign Tasks" entry
@@ -81,8 +87,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
   const adminAccount: NavSection = {
     title: "Account",
     items: [
-      { href: "/attendance/profile", label: "My Profile", icon: "profile" },
-      { href: "/settings", label: "Settings", icon: "settings" },
+      { href: "/attendance/profile", label: "My Profile", icon: "profile", prefetch: false },
+      { href: "/settings", label: "Settings", icon: "settings", prefetch: false },
     ],
   };
   // Individual only.
@@ -91,7 +97,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
     items: [
       { href: "/attendance", label: "Attendance", icon: "attendance" },
       { href: "/attendance/leave", label: "Leave / WFH", icon: "leave" },
-      { href: "/attendance/profile", label: "My Profile", icon: "profile" },
+      { href: "/attendance/profile", label: "My Profile", icon: "profile", prefetch: false },
     ],
   };
   // Super admins (decided 2026-11-06): a company-level menu only. No personal
@@ -114,27 +120,27 @@ export async function AppShell({ children }: { children: ReactNode }) {
       items: [
         { href: "/clients", label: "Clients", icon: "clients" },
         { href: "/projects", label: "Projects", icon: "projects" },
-        { href: "/client-reports", label: "Client Reports", icon: "myreports" },
+        { href: "/client-reports", label: "Client Reports", icon: "myreports", prefetch: false },
       ],
     },
     {
       title: "HR & People",
       items: [
         { href: "/hr", label: "Team Attendance", icon: "teamattendance" },
-        { href: "/hr/leave", label: "Leave Applications", icon: "leave" },
+        { href: "/hr/leave", label: "Leave Applications", icon: "leave", prefetch: false },
         // Employee directory (above) and Employee Profile (here) are
         // deliberately two different links to two different pages -- see
         // app-shell redesign notes.
-        { href: "/hr/employees", label: "Employee Profile", icon: "employees" },
-        { href: "/hr/holidays", label: "Public Holidays", icon: "holidays" },
-        { href: "/hr/reports", label: "Monthly Reports", icon: "myreports" },
+        { href: "/hr/employees", label: "Employee Profile", icon: "employees", prefetch: false },
+        { href: "/hr/holidays", label: "Public Holidays", icon: "holidays", prefetch: false },
+        { href: "/hr/reports", label: "Monthly Reports", icon: "myreports", prefetch: false },
       ],
     },
     {
       title: "System",
       items: [
-        { href: "/settings", label: "Settings", icon: "settings" },
-        { href: "/bugs", label: "Bug Reports", icon: "bugs" },
+        { href: "/settings", label: "Settings", icon: "settings", prefetch: false },
+        { href: "/bugs", label: "Bug Reports", icon: "bugs", prefetch: false },
       ],
     },
   ];
@@ -167,7 +173,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
     },
     {
       title: "Account",
-      items: [{ href: "/settings", label: "Settings", icon: "settings" }],
+      items: [{ href: "/settings", label: "Settings", icon: "settings", prefetch: false }],
     },
   ];
   const sections: NavSection[] =

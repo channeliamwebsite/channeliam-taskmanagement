@@ -181,7 +181,36 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   // genuinely needs full history, so it's served by a separate id/project_id
   // only query (no joins) instead of widening either scope back out.
   const needsProjectHistory = isIndividual || isOperationalManager;
-  const [tasks, projects, members, team, projectOptions, myReport, tracking, canCreate, clients, assignedProjectIds] = await Promise.all([
+  const today = workspaceToday(workspace);
+  // Super Admin only, computed up front so its figures (below) can join the
+  // single Promise.all this feeds into, instead of waiting for it to finish
+  // first in a second, separate Promise.all -- nothing here depends on
+  // tasks/projects/members/etc. from the array below, only on
+  // departmentWorkspaceIds/today/range, all already known by this point.
+  const params = await searchParams;
+  const range = parseRange(params.from, params.to);
+  const attendanceDay = todayISO(new Date(), BUSINESS_TIMEZONE);
+  const emptyAttendanceReport = { dates: [], today: attendanceDay, reports: [] };
+  const emptyStatusCounts = { total: 0, completed: 0, inProgress: 0, pending: 0, blocked: 0, overdue: 0 };
+  const [
+    tasks,
+    projects,
+    members,
+    team,
+    projectOptions,
+    myReport,
+    tracking,
+    canCreate,
+    clients,
+    assignedProjectIds,
+    attendanceReport,
+    pendingLeave,
+    taskStatusCounts,
+    employeeCountsRows,
+    departmentCountsRows,
+    projectCountsRows,
+    upcomingDeadlines,
+  ] = await Promise.all([
     // Super Admin no longer needs any task rows fetched here at all: the
     // four company_*_task_counts RPCs (migration 053) and a dedicated bounded
     // query for Upcoming Deadlines, both below, replace this fetch entirely.
@@ -222,40 +251,37 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
     needsProjectHistory
       ? listAssignedProjectIds(workspace.id, session.user.id, isOperationalManager ? { workspaceIds: departmentWorkspaceIds } : undefined)
       : Promise.resolve(null),
-  ]);
-
-  const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
-  const props = { session, workspace, tasks, projects, members, today: workspaceToday(workspace) };
-
-  if (isSuperAdmin) {
-    // Company-wide figures (super admins read every workspace, 025). Task
-    // status/employee/department/project figures below all come from the
-    // company_*_task_counts RPCs (migration 053), not from any task fetch.
-    const params = await searchParams;
-    const range = parseRange(params.from, params.to);
-    // Today's attendance from the same source and rules as /hr (company-wide, India time).
-    const attendanceDay = todayISO(new Date(), BUSINESS_TIMEZONE);
-    const [attendanceReport, pendingLeave, taskStatusCounts, employeeCountsRows, departmentCountsRows, projectCountsRows, upcomingDeadlines] =
-      await Promise.all([
-        buildRangeReport(attendanceDay, attendanceDay),
-        // Same query as HR → Leave Applications (pending, this year).
-        listLeaveForReview("PENDING", Number(attendanceDay.slice(0, 4))),
-        // Company-wide, all-time (statusCounts never takes a range -- "All time" is the default date filter).
-        loadCompanyTaskStatusCounts(departmentWorkspaceIds, props.today),
-        loadCompanyEmployeeTaskCounts(departmentWorkspaceIds, props.today, workspace.timezone, range),
-        loadCompanyDepartmentTaskCounts(departmentWorkspaceIds, workspace.timezone, range),
-        loadCompanyProjectTaskCounts(departmentWorkspaceIds, props.today, workspace.timezone, range),
-        // Dedicated bounded query for Upcoming Deadlines: open, company-wide,
-        // due strictly after today through 7 days out -- independent of the
-        // performance date filter above (same rule as My Day/Individual).
-        listTasks({
+    // Super Admin only, from here down. Company-wide figures (super admins
+    // read every workspace, 025); task status/employee/department/project
+    // figures all come from the company_*_task_counts RPCs (migration 053),
+    // not from any task fetch above.
+    isSuperAdmin ? buildRangeReport(attendanceDay, attendanceDay) : Promise.resolve(emptyAttendanceReport),
+    // Same query as HR → Leave Applications (pending, this year).
+    isSuperAdmin ? listLeaveForReview("PENDING", Number(attendanceDay.slice(0, 4))) : Promise.resolve([]),
+    // Company-wide, all-time (statusCounts never takes a range -- "All time" is the default date filter).
+    isSuperAdmin ? loadCompanyTaskStatusCounts(departmentWorkspaceIds, today) : Promise.resolve(emptyStatusCounts),
+    isSuperAdmin ? loadCompanyEmployeeTaskCounts(departmentWorkspaceIds, today, workspace.timezone, range) : Promise.resolve([]),
+    isSuperAdmin ? loadCompanyDepartmentTaskCounts(departmentWorkspaceIds, workspace.timezone, range) : Promise.resolve([]),
+    isSuperAdmin ? loadCompanyProjectTaskCounts(departmentWorkspaceIds, today, workspace.timezone, range) : Promise.resolve([]),
+    // Dedicated bounded query for Upcoming Deadlines: open, company-wide, due
+    // strictly after today through 7 days out -- independent of the
+    // performance date filter above (same rule as My Day/Individual).
+    isSuperAdmin
+      ? listTasks({
           workspaceId: workspace.id,
           workspaceIds: departmentWorkspaceIds,
           openOnly: true,
-          dueFrom: addDays(props.today, 1),
-          dueTo: addDays(props.today, 7),
-        }),
-      ]);
+          dueFrom: addDays(today, 1),
+          dueTo: addDays(today, 7),
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const name = session.profile.fullName?.split(" ")[0] || session.profile.email || "there";
+  const props = { session, workspace, tasks, projects, members, today };
+
+  if (isSuperAdmin) {
+    // Today's attendance from the same source and rules as /hr (company-wide, India time).
     const attendance = dashboardCounts(attendanceReport.reports.filter((r) => r.employee.isActive).map((r) => r.days[0]));
     // Today's attendance status per employee, for the Employee overview table --
     // same report already fetched above for the company-wide counts, no new query.

@@ -98,22 +98,46 @@ export async function requireUser(): Promise<CurrentUser> {
 }
 
 /**
- * Requires a signed-in user with an active profile. Deactivated or missing
- * profiles are signed out (cookies can only be cleared in a Route Handler or
- * Server Action, hence the redirect to the sign-out route).
+ * Deactivated or missing profiles are signed out (cookies can only be
+ * cleared in a Route Handler or Server Action, hence the redirect to the
+ * sign-out route). Shared by requireSession and requireSessionWithExtra so
+ * both enforce exactly the same check.
  */
-export async function requireSession(): Promise<Session> {
-  const user = await requireUser();
-  const profile = await getCurrentProfile();
-
+function validateProfile(profile: CurrentProfile | null): CurrentProfile {
   if (!profile) {
     redirect(`${SIGN_OUT_ROUTE}?reason=profile_missing`);
   }
   if (!profile.isActive) {
     redirect(`${SIGN_OUT_ROUTE}?reason=account_inactive`);
   }
+  return profile;
+}
 
+/**
+ * Requires a signed-in user with an active profile. Deactivated or missing
+ * profiles are signed out (cookies can only be cleared in a Route Handler or
+ * Server Action, hence the redirect to the sign-out route).
+ */
+export async function requireSession(): Promise<Session> {
+  const user = await requireUser();
+  const profile = validateProfile(await getCurrentProfile());
   return { user, profile, permissions: getPermissions(profile.role) };
+}
+
+/**
+ * Same guarantee as requireSession (nothing is returned before authentication
+ * and profile validation complete) but fetches one extra, independent piece
+ * of data concurrently with the profile instead of after it. Use this only
+ * when the extra fetch truly doesn't depend on the resolved profile -- it
+ * takes just the user id.
+ */
+export async function requireSessionWithExtra<T>(
+  fetchExtra: (userId: string) => Promise<T>,
+): Promise<{ session: Session; extra: T }> {
+  const user = await requireUser();
+  const [profile, extra] = await Promise.all([getCurrentProfile(), fetchExtra(user.id)]);
+  const validProfile = validateProfile(profile);
+  return { session: { user, profile: validProfile, permissions: getPermissions(validProfile.role) }, extra };
 }
 
 /**

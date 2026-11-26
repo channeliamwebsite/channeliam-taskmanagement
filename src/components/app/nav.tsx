@@ -56,7 +56,15 @@ const ICONS = {
   holidays: CalendarHeart,
 } satisfies Record<string, LucideIcon>;
 
-export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number };
+/**
+ * prefetch: false for secondary/rarely-visited destinations (settings,
+ * admin-only review pages, monthly/holiday reports) -- each one was measured
+ * firing a real server render + Supabase query on every page load purely
+ * from being a sidebar link, for routes most visits never follow. Omitted
+ * (the default) for daily-workflow destinations, where prefetching still
+ * earns its keep.
+ */
+export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number; prefetch?: boolean };
 export type NavSection = { title: string; items: NavItem[] };
 
 /** Links with a query string (e.g. Task Board) are active only when their params match. */
@@ -92,6 +100,7 @@ function NavLinks({ sections, onNavigate }: { sections: NavSection[]; onNavigate
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={item.prefetch}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
